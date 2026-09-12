@@ -1,7 +1,9 @@
-# RegExr 中文版（私有部署）
+# RegExr 中文版（Rust 后端私有部署）
 
-RegExr 正则测试工具的内网私有部署：原版中文前端 + Rust/PCRE2 单二进制后端。
+RegExr 正则测试工具的私有部署：原版中文前端 + Rust/PCRE2 单二进制后端，
+用 Rust 重写替代原 PHP 后端，大幅收窄攻击面、降低被安全扫描/渗透测试提工单的概率。
 无 PHP、无 MySQL、无账号、无社区功能、无任何外部网络请求。
+不依赖内网环境，公网自托管同样适用（前端 CSP、服务端防 DoS 限制等加固见 `docs/DEPLOY.md`）。
 
 ```
 frontend/   RegExr 前端（GPL-3.0，见 frontend/LICENSE）
@@ -19,7 +21,7 @@ scripts/    前端构建 / musl 交叉编译 / PHP fixture 生成脚本
   （`server/api.php`，action=`regex/solve`）的请求/响应契约，引擎为 PCRE2
   （pcre2-sys，vendored 源码随 musl 静态链接）。
 
-GPL-3.0 合规提示：仅在内网自用不触发分发义务；若对外分发整个部署包
+GPL-3.0 合规提示：仅自用（不对外分发）不触发分发义务；若对外分发整个部署包
 （含 GPL 前端），需按 GPL-3.0 提供对应源码。
 
 ## 语义说明（与原 PHP 后端的已知差异）
