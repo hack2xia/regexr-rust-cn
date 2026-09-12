@@ -1,0 +1,10 @@
+{
+  "comment": "compile error inside success envelope; message wording comes from PCRE2",
+  "request": {"pattern": "a(b", "flags": "g", "mode": "text", "text": "aaa"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [],
+    "error": {"name": "CompileError", "id": "regexparse"}
+  }
+}

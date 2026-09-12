@@ -1,0 +1,9 @@
+{
+  "comment": "UTF-16 code unit offsets (frontend semantics; PHP emitted UTF-8 char counts - Rust is more accurate). surrogate pair = 2 units",
+  "request": {"pattern": "\\w+", "flags": "g", "mode": "text", "text": "\ud83d\ude00ab"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [{"i": 2, "l": 2, "groups": []}]
+  }
+}

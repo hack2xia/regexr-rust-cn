@@ -1,0 +1,13 @@
+{
+  "comment": "ASCII: global match with two groups (PHP char offsets == JS UTF-16 offsets)",
+  "request": {"pattern": "(\\w+)@(\\w+)", "flags": "gi", "mode": "text", "text": "mail bob@host x or sue@site y", "tool": {"id": "replace", "input": "$2:$1"}},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [
+      {"i": 5,  "l": 8, "groups": [{"i": 5,  "l": 3}, {"i": 9,  "l": 4}]},
+      {"i": 19, "l": 8, "groups": [{"i": 19, "l": 3}, {"i": 23, "l": 4}]}
+    ],
+    "tool": {"id": "replace", "result": "mail host:bob x or site:sue y"}
+  }
+}

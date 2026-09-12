@@ -1,0 +1,10 @@
+{
+  "comment": "catastrophic backtracking hits match_limit -> id=infinite, warning=true",
+  "request": {"pattern": "(a+)+$", "flags": "", "mode": "text", "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [],
+    "error": {"name": "PREG_BACKTRACK_LIMIT_ERROR", "id": "infinite", "warning": true}
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "comment": "unknown modifier is rejected",
+  "request": {"pattern": "a", "flags": "gz", "mode": "text", "text": "a"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [],
+    "error": {"name": "CompileError", "id": "regexparse"}
+  }
+}

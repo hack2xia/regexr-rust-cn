@@ -1,0 +1,12 @@
+{
+  "comment": "named groups appear as numbered groups too (PHP is_int filter keeps numbers)",
+  "request": {"pattern": "(?P<user>\\w+)", "flags": "g", "mode": "text", "text": "ann bob"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [
+      {"i": 0, "l": 3, "groups": [{"i": 0, "l": 3}]},
+      {"i": 4, "l": 3, "groups": [{"i": 4, "l": 3}]}
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "comment": "regression: empty matches over multibyte text must advance one character, not one byte. A mid-UTF-8-sequence match offset cannot be converted to UTF-16 (the Rust conversion panicked). Note: this pins UTF-mode char semantics (the server always runs PCRE2_UTF); a non-/u PHP run would advance byte-wise and is intentionally not used as the gold standard here.",
+  "request": {"pattern": "x*", "flags": "g", "mode": "text", "text": "中文abc"},
+  "response": {
+    "id": null,
+    "mode": "text",
+    "matches": [
+      {"i": 0, "l": 0, "groups": []},
+      {"i": 1, "l": 0, "groups": []},
+      {"i": 2, "l": 0, "groups": []},
+      {"i": 3, "l": 0, "groups": []},
+      {"i": 4, "l": 0, "groups": []},
+      {"i": 5, "l": 0, "groups": []}
+    ]
+  }
+}

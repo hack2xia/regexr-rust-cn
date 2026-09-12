@@ -1,0 +1,37 @@
+[package]
+name = "regexr-server"
+version = "1.0.0"
+edition = "2021"
+description = "Private intranet RegExr deployment: static frontend + PCRE2 solve API (Rust replacement for the PHP backend)"
+
+[[bin]]
+name = "regexr-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal"] }
+tower = { version = "0.4", features = ["limit", "load-shed", "timeout"] }
+tower-http = { version = "0.5", features = ["set-header"] }
+tower-layer = "0.3"
+tower-service = "0.3"
+http = "1"
+http-body = "1"
+hyper = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rust-embed = { version = "8", features = ["mime-guess"] }
+mime_guess = "2"
+pcre2-sys = "0.2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
