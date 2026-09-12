@@ -80,7 +80,14 @@ WantedBy=multi-user.target
 ## 测试
 
 ```bash
-cd server && cargo test     # 27 个测试：引擎、偏移、替换、包络、fixtures 回放、安全头
+cd server && cargo test     # 29 个测试：引擎、偏移、替换、包络、fixtures 回放、proptest 性质、安全头
+```
+
+发布产物冒烟（回放全部 fixtures + 安全头检查到真实二进制上，验证 musl 静态链接
+与目标机 PCRE2 JIT，`cargo test` 覆盖不到的部署层）：
+
+```bash
+./scripts/smoke.sh          # 默认测 cross-build.sh 的 musl 产物，无则先构建本地 debug 二进制
 ```
 
 fixtures（`server/tests/fixtures/`）可在外部 PHP 环境用 `php scripts/gen-fixtures.php server/tests/fixtures/*.json` 按原 PHP 后端语义重新生成，用于对拍验证。

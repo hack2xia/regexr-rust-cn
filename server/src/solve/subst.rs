@@ -20,7 +20,11 @@
 /// * `total_groups`: number of capturing groups in the pattern.
 /// * `lookup(n)`: returns the captured text for group `n` (1-based),
 ///   `None` if the group exists but did not participate in the match.
-pub fn expand<'a>(repl: &str, total_groups: usize, lookup: impl Fn(usize) -> Option<&'a str>) -> String {
+pub fn expand<'a>(
+    repl: &str,
+    total_groups: usize,
+    lookup: impl Fn(usize) -> Option<&'a str>,
+) -> String {
     let mut out = String::with_capacity(repl.len());
     let chars: Vec<char> = repl.chars().collect();
     let mut i = 0;
@@ -59,12 +63,24 @@ pub fn expand<'a>(repl: &str, total_groups: usize, lookup: impl Fn(usize) -> Opt
             }
             (_, Some(d)) if c == '$' && d.is_ascii_digit() => {
                 let (n, consumed) = parse_number(&chars, i + 1, 2);
-                emit_group(&mut out, n, total_groups, &lookup, &chars[i..i + 1 + consumed].iter().collect::<String>());
+                emit_group(
+                    &mut out,
+                    n,
+                    total_groups,
+                    &lookup,
+                    &chars[i..i + 1 + consumed].iter().collect::<String>(),
+                );
                 i += 1 + consumed;
             }
             (_, Some(d)) if c == '\\' && d.is_ascii_digit() => {
                 let (n, consumed) = parse_number(&chars, i + 1, 2);
-                emit_group(&mut out, n, total_groups, &lookup, &chars[i..i + 1 + consumed].iter().collect::<String>());
+                emit_group(
+                    &mut out,
+                    n,
+                    total_groups,
+                    &lookup,
+                    &chars[i..i + 1 + consumed].iter().collect::<String>(),
+                );
                 i += 1 + consumed;
             }
             _ => {
@@ -95,7 +111,10 @@ fn parse_braced(chars: &[char], start: usize) -> Option<(usize, usize)> {
 fn parse_number(chars: &[char], start: usize, max_digits: usize) -> (usize, usize) {
     let mut n: usize = 0;
     let mut consumed = 0;
-    while consumed < max_digits && start + consumed < chars.len() && chars[start + consumed].is_ascii_digit() {
+    while consumed < max_digits
+        && start + consumed < chars.len()
+        && chars[start + consumed].is_ascii_digit()
+    {
         n = n * 10 + (chars[start + consumed] as usize - '0' as usize);
         consumed += 1;
     }

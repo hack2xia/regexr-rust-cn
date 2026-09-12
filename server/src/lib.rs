@@ -49,7 +49,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(axum::extract::DefaultBodyLimit::max(config::MAX_BODY_BYTES))
         .layer(
             ServiceBuilder::new()
-                .layer(axum::error_handling::HandleErrorLayer::new(handle_service_error))
+                .layer(axum::error_handling::HandleErrorLayer::new(
+                    handle_service_error,
+                ))
                 .load_shed()
                 .concurrency_limit(config::MAX_CONCURRENT_SOLVE)
                 .timeout(std::time::Duration::from_secs(config::REQUEST_TIMEOUT_SECS)),

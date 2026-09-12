@@ -113,7 +113,8 @@ impl CompiledRegex {
             // JIT: failure is non-fatal, fall back to the interpreter.
             let jit = sys::pcre2_jit_compile_8(code, sys::PCRE2_JIT_COMPLETE) >= 0;
 
-            let match_data = sys::pcre2_match_data_create_from_pattern_8(code, std::ptr::null_mut());
+            let match_data =
+                sys::pcre2_match_data_create_from_pattern_8(code, std::ptr::null_mut());
             let mcontext = sys::pcre2_match_context_create_8(std::ptr::null_mut());
             let mut jit_stack: *mut sys::pcre2_jit_stack_8 = std::ptr::null_mut();
             if !mcontext.is_null() {
@@ -191,7 +192,7 @@ impl CompiledRegex {
             sys::PCRE2_ERROR_MATCHLIMIT => Err(SolveError::MatchLimit),
             sys::PCRE2_ERROR_DEPTHLIMIT => Err(SolveError::DepthLimit),
             sys::PCRE2_ERROR_JIT_STACKLIMIT => Err(SolveError::JitStackLimit),
-            rc if rc <= sys::PCRE2_ERROR_UTF8_ERR1 && rc >= sys::PCRE2_ERROR_UTF8_ERR21 => {
+            rc if (sys::PCRE2_ERROR_UTF8_ERR21..=sys::PCRE2_ERROR_UTF8_ERR1).contains(&rc) => {
                 Err(SolveError::BadUtf8)
             }
             _ => Err(SolveError::Internal {

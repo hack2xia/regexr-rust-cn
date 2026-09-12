@@ -35,7 +35,9 @@ async fn main() {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("failed to install SIGINT handler");
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install SIGINT handler");
     };
     #[cfg(unix)]
     let terminate = async {

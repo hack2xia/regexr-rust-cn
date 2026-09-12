@@ -13,8 +13,8 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{json, Value};
 
-use crate::state::AppState;
 use crate::solve;
+use crate::state::AppState;
 
 const CODE_UNKNOWN: i64 = 1000;
 const CODE_NO_ACTION: i64 = 1001;
@@ -49,15 +49,14 @@ pub async fn handle(State(state): State<Arc<AppState>>, body: String) -> Respons
         // the PCRE2 match/depth limits (see config.rs), not this thread.
         match tokio::task::spawn_blocking(move || solve::solve(&req)).await {
             Ok(data) => envelope_success(data, started),
-            Err(e) => envelope_error(
-                CODE_UNKNOWN,
-                &format!("internal error: {e}"),
-                started,
-            ),
+            Err(e) => envelope_error(CODE_UNKNOWN, &format!("internal error: {e}"), started),
         }
     } else {
         let version = state.pcre2_version.clone();
-        envelope_success(crate::actions::stubs::stub_response(&action, &version), started)
+        envelope_success(
+            crate::actions::stubs::stub_response(&action, &version),
+            started,
+        )
     };
 
     payload
@@ -69,7 +68,7 @@ fn form_value(body: &str, key: &str) -> Option<String> {
     for pair in body.split('&') {
         let (k, v) = pair.split_once('=')?;
         if percent_decode(k) == key {
-            return Some(percent_decode(&v.to_string()));
+            return Some(percent_decode(v));
         }
     }
     None

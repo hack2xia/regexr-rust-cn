@@ -19,11 +19,7 @@ fn test_app() -> axum::Router {
 }
 
 fn form_encode(action: &str, data_json: &str) -> String {
-    format!(
-        "action={}&data={}",
-        action,
-        urlencode(data_json.as_bytes())
-    )
+    format!("action={}&data={}", action, urlencode(data_json.as_bytes()))
 }
 
 fn urlencode(bytes: &[u8]) -> String {
@@ -88,7 +84,7 @@ async fn fixtures_replay() {
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .expect("fixtures dir")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |x| x == "json"))
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {

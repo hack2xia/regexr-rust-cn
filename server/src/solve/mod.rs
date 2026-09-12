@@ -213,7 +213,12 @@ fn elapsed_secs(started: std::time::Instant) -> f64 {
     started.elapsed().as_secs_f64()
 }
 
-fn solve_error_data(req: &SolveRequest, mode: &str, e: &SolveError, started: std::time::Instant) -> Value {
+fn solve_error_data(
+    req: &SolveRequest,
+    mode: &str,
+    e: &SolveError,
+    started: std::time::Instant,
+) -> Value {
     json!({
         "id": req.id.clone(),
         "timestamp": std::time::SystemTime::now()
