@@ -1,0 +1,61 @@
+# 腾讯 CNB（cnb.cool）流水线配置。
+#
+# 分工原则（省核时）：日常质量关卡（fmt/clippy/test/前端构建）由 GitHub
+# Actions 承担（见 .github/workflows/ci.yml）；这里只用 CNB 免费核时做
+# GitHub 做不了或本地做不划算的事：
+#   1. tag_push —— 云端发布构建：前端 + musl 静态二进制 + 真实二进制冒烟，
+#      产物推入 CNB 制品库，本机无需 Docker（每次约消耗 1~2 核时）。
+#   2. $.vscode —— 按需启动的云端开发机（Rust + Node + python3）。
+# 触发频率刻意压低：push 不触发任何流水线。
+
+main:
+  tag_push:
+    - name: release-build
+      runner:
+        cpus: 4
+      docker:
+        # 与 scripts/cross-build.sh 钉死的同一镜像，保证产物一致
+        image: rust:1.98.1-alpine3.21
+        # 缓存 cargo 下载（卷仅对当前构建节点有效，重复构建更快、更省核时）
+        volumes:
+          - /usr/local/cargo/registry
+      services:
+        - docker
+      stages:
+        - name: build frontend
+          script: |
+            apk add --no-cache nodejs npm
+            ./scripts/build-frontend.sh
+        - name: build static binary
+          script: |
+            apk add --no-cache musl-dev clang
+            cd server && cargo build --release --target x86_64-unknown-linux-musl
+        - name: smoke test (real binary)
+          script: |
+            apk add --no-cache python3
+            ./scripts/smoke.sh server/target/x86_64-unknown-linux-musl/release/regexr-server
+        - name: push release image
+          script: |
+            cd server/target/x86_64-unknown-linux-musl/release
+            printf 'FROM scratch\nCOPY regexr-server /regexr-server\n' > Dockerfile.release
+            docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+            docker build -f Dockerfile.release \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_BRANCH:-latest} \
+              -t ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest \
+              .
+            docker push ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:${CNB_BRANCH:-latest}
+            docker push ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest
+
+# 云端开发环境：仓库页面点「云原生开发」即按需启动（吃免费核时，用完即关）。
+$:
+  vscode:
+    - name: dev
+      runner:
+        cpus: 4
+      docker:
+        image: rust:1.98.1-alpine3.21
+        volumes:
+          - /usr/local/cargo/registry
+      stages:
+        - name: install tools
+          script: apk add --no-cache nodejs npm python3 git bash docker-cli

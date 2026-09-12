@@ -90,4 +90,21 @@ cd server && cargo test     # 29 个测试：引擎、偏移、替换、包络�
 ./scripts/smoke.sh          # 默认测 cross-build.sh 的 musl 产物，无则先构建本地 debug 二进制
 ```
 
+## 云端发布构建（腾讯 CNB，可选）
+
+日常质量关卡走 GitHub Actions；仓库同时配有 `.cnb.yml`，用 CNB 免费核时做
+免本地 Docker 的发布构建（tag 推送时触发，CPU 4 核，约 1~2 核时/次）：
+
+1. 把仓库导入 CNB（或 `git remote add cnb <你的仓库URL> && git push cnb main --tags`）；
+2. 发布：`git tag v1.0.0 && git push origin v1.0.0`（推到 CNB 则 `git push cnb v1.0.0`）；
+3. 流水线自动完成：前端构建 → musl 静态编译 → 真实二进制冒烟 → 把二进制以
+   `FROM scratch` 镜像推入 CNB 制品库。取回二进制：
+   ```bash
+   docker pull docker.cnb.cool/<你的仓库slug>:v1.0.0
+   docker create --name tmp docker.cnb.cool/<你的仓库slug>:v1.0.0
+   docker cp tmp:/regexr-server ./regexr-server && docker rm tmp
+   ```
+
+仓库页面的「云原生开发」可按需启动 4 核云端开发机（Rust/Node/python3 环境预装）。
+
 fixtures（`server/tests/fixtures/`）可在外部 PHP 环境用 `php scripts/gen-fixtures.php server/tests/fixtures/*.json` 按原 PHP 后端语义重新生成，用于对拍验证。
