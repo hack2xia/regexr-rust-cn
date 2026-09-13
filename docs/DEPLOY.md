@@ -90,6 +90,32 @@ cd server && cargo test     # 29 个测试：引擎、偏移、替换、包络�
 ./scripts/smoke.sh          # 默认测 cross-build.sh 的 musl 产物，无则先构建本地 debug 二进制
 ```
 
+## 发布（多平台二进制）
+
+仓库已公开，GitHub Actions 免费提供全平台构建（`.github/workflows/release.yml`）：
+
+```bash
+git tag v1.x.y && git push origin v1.x.y   # 触发发布
+```
+
+自动构建 4 个目标并在 GitHub Releases 挂出 tar.gz（内含二进制 + README + 本文档）：
+
+| 目标 | 构建方式 | 冒烟 |
+|---|---|---|
+| x86_64-unknown-linux-musl | cargo-zigbuild 交叉编译（静态） | 云端执行 |
+| aarch64-unknown-linux-musl | 同上（静态） | 交叉产物，目标机手动验证 |
+| aarch64-apple-darwin | macos runner 原生 | 云端执行 |
+| x86_64-apple-darwin | macos runner 交叉编译 | 目标机手动验证 |
+
+推 tag 前可先在 Actions 页面手动 Run workflow（`workflow_dispatch`）验证构建，
+该模式只构建 + 冒烟、不发布。macOS 双架构也可本机构建：
+
+```bash
+./scripts/build-macos.sh [--smoke]   # 无 rustup（如 MacPorts rust）时仅构建本机架构
+```
+
+Windows 暂不支持（计划 `x86_64-pc-windows-msvc`，未实现）。
+
 ## 云端发布构建（腾讯 CNB，可选）
 
 日常质量关卡走 GitHub Actions；仓库同时配有 `.cnb.yml`，用 CNB 免费核时做

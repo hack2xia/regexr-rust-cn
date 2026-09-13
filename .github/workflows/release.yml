@@ -1,0 +1,91 @@
+name: Release
+
+# Public repo => free Actions minutes on all OSes.
+# Triggers: pushing a v* tag (build + smoke + publish binaries to a GitHub
+# Release), or manual dispatch (build + smoke only, no release — use it to
+# validate the pipeline before tagging). Never on plain push (CI covers that).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Static musl binaries; built with cargo-zigbuild (zig cc) so both
+          # arches cross-compile from one ubuntu runner without qemu.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, smoke: true }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, smoke: false }
+          # macos-latest is an arm64 runner: native arm build + x64 cross
+          # (Apple toolchain links both arches natively).
+          - { os: macos-latest, target: aarch64-apple-darwin, smoke: true }
+          - { os: macos-latest, target: x86_64-apple-darwin, smoke: false }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-embed embeds server/static/ at compile time (gitignored build
+      # output) — frontend build must precede every cargo step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: ./scripts/build-frontend.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+          key: ${{ matrix.target }}
+
+      - name: install cargo-zigbuild + zig (linux only)
+        if: runner.os == 'Linux'
+        run: |
+          pip3 install ziglang
+          ${HOME}/.cargo/bin/cargo install --locked cargo-zigbuild
+
+      - name: build
+        working-directory: server
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      # Only run the smoke suite where the host can execute the target binary
+      # (static musl x64 runs on the glibc host; arm mac runs natively). Cross
+      # outputs are verified on a real machine of that arch.
+      - name: smoke test real binary
+        if: matrix.smoke
+        run: ./scripts/smoke.sh server/target/${{ matrix.target }}/release/regexr-server
+
+      - name: package
+        run: |
+          dir=regexr-server-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir "$dir"
+          cp server/target/${{ matrix.target }}/release/regexr-server "$dir"/
+          cp README.md docs/DEPLOY.md "$dir"/
+          tar czf "$dir".tar.gz "$dir"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: "*.tar.gz"
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: "*.tar.gz"
+          generate_release_notes: true
