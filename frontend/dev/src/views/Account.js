@@ -57,6 +57,9 @@ export default class Account extends EventDispatcher {
 	_initUI() {
 		let template = (o) => '<svg class="icon inline"><use xlink:href="#'+o.toLowerCase()+'"></use></svg>'+o;
 		this.signinBtn = $.query(".header .signin");
+		// Private deployment: the login button is removed from the header;
+		// all account UI is disabled.
+		if (!this.signinBtn) { return; }
 		this.tooltipEl = $.query("#library > #tooltip-signin");
 		this.signinEl = $.query(".signin", this.tooltipEl);
 		this.signoutEl = $.query(".signout", this.tooltipEl);
@@ -68,6 +71,7 @@ export default class Account extends EventDispatcher {
 	}
 
 	_updateUI() {
+		if (!this.signinBtn) { return; }
 		let auth = this.authenticated;
 		$.toggleClass(this.tooltipEl, "authenticated", auth);
 		$.query(".label", this.signinBtn).innerText = auth ? "退出" : "登录";
