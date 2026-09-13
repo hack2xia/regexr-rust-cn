@@ -84,8 +84,18 @@ jobs:
           name: ${{ matrix.target }}
           path: "*.tar.gz"
 
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
+  # One job publishes so concurrent build jobs never race on release creation
+  # (parallel softprops runs hit GitHub API 500s on the first release attempt).
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          files: "*.tar.gz"
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
           generate_release_notes: true
