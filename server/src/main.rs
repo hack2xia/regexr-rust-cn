@@ -14,7 +14,7 @@ async fn main() {
     let pcre2_version = solve::engine::pcre2_version();
     tracing::info!("PCRE2 version: {pcre2_version}");
 
-    let state = std::sync::Arc::new(AppState { pcre2_version });
+    let state = std::sync::Arc::new(AppState::new(pcre2_version));
     let app = build_router(state);
 
     let addr: std::net::SocketAddr = std::env::var("REGEXR_ADDR")

@@ -622,6 +622,7 @@ name = "regexr-server"
 version = "0.1.1"
 dependencies = [
  "axum",
+ "bytes",
  "http",
  "http-body",
  "http-body-util",

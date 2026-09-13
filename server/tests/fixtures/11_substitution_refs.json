@@ -1,10 +1,33 @@
 {
-  "comment": "PHP replacement semantics: unknown ref falls back to shorter group + literal digits",
-  "request": {"pattern": "x(9)", "flags": "g", "mode": "text", "text": "x9 y", "tool": {"id": "replace", "input": "$13"}},
-  "response": {
-    "id": null,
-    "mode": "text",
-    "matches": [{"i": 0, "l": 2, "groups": [{"i": 1, "l": 1}]}],
-    "tool": {"id": "replace", "result": "93 y"}
-  }
+    "comment": "PHP replacement semantics: unknown ref falls back to shorter group + literal digits",
+    "request": {
+        "pattern": "x(9)",
+        "flags": "g",
+        "mode": "text",
+        "text": "x9 y",
+        "tool": {
+            "id": "replace",
+            "input": "$13"
+        }
+    },
+    "response": {
+        "id": null,
+        "mode": "text",
+        "matches": [
+            {
+                "i": 0,
+                "l": 2,
+                "groups": [
+                    {
+                        "i": 1,
+                        "l": 1
+                    }
+                ]
+            }
+        ],
+        "tool": {
+            "id": "replace",
+            "result": " y"
+        }
+    }
 }

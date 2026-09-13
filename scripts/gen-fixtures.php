@@ -31,11 +31,31 @@ foreach (array_slice($argv, 1) as $file) {
 }
 
 function solve($req) {
+    // Per-request error capture: real PHP serves one request per process, so
+    // error_get_last() in the original backend could never see a previous
+    // request's warning. Isolate the same way (fixture 10's leaked
+    // "Unknown modifier" message came from exactly this).
+    $GLOBALS['__preg_warning'] = null;
+    set_error_handler(function ($errno, $errstr) {
+        $GLOBALS['__preg_warning'] = $errstr;
+        return true; // preg_* failures are handled explicitly below
+    });
+    try {
+        return solve_body($req);
+    } finally {
+        restore_error_handler();
+    }
+}
+
+function solve_body($req) {
     $pattern = isset($req->pattern) ? $req->pattern : '';
     $flags = isset($req->flags) ? $req->flags : '';
     $mode = isset($req->mode) ? $req->mode : 'text';
     $global = strpos($flags, 'g') !== false;
-    $modifiers = str_replace('g', '', $flags);
+    // The Rust server always compiles with PCRE2_UTF (documented in
+    // README/DEPLOY). The gold standard must match that declared semantics,
+    // so /u is forced here regardless of the request flags.
+    $modifiers = str_replace('g', '', $flags) . 'u';
     $re = "/{$pattern}/{$modifiers}";
 
     $out = ['id' => isset($req->id) ? $req->id : null, 'mode' => $mode];
@@ -47,8 +67,8 @@ function solve($req) {
             $entry = ['id' => isset($t->id) ? $t->id : null];
             $m = [];
             $ok = $global
-                ? preg_match_all($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER)
-                : preg_match($re, $text, $m, PREG_OFFSET_CAPTURE);
+                ? preg_match_all($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL)
+                : preg_match($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL);
             if ($ok === false) {
                 $entry['error'] = pcre_error();
             } elseif ($ok > 0) {
@@ -66,8 +86,8 @@ function solve($req) {
     $text = isset($req->text) ? $req->text : '';
     $m = [];
     $ok = $global
-        ? preg_match_all($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER)
-        : preg_match($re, $text, $m, PREG_OFFSET_CAPTURE);
+        ? preg_match_all($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER | PREG_UNMATCHED_AS_NULL)
+        : preg_match($re, $text, $m, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL);
     if ($ok === false) {
         $out['matches'] = [];
         $out['error'] = pcre_error();
@@ -120,8 +140,9 @@ function pcre_error() {
     elseif ($code === PREG_JIT_STACKLIMIT_ERROR) { $name = 'PREG_JIT_STACKLIMIT_ERROR'; $id = 'infinite'; }
     elseif ($code === PREG_BAD_UTF8_ERROR) { $name = 'PREG_BAD_UTF8_ERROR'; $id = 'badutf8'; }
     elseif ($code === PREG_BAD_UTF8_OFFSET_ERROR) { $name = 'PREG_BAD_UTF8_OFFSET_ERROR'; $id = 'badutf8'; }
-    $msg = preg_replace('/^[a-z_():\s]+/', '', (string) error_get_last()['message']);
-    $e = ['message' => $msg, 'name' => $name, 'id' => $id];
+    $msg = preg_replace('/^[a-z_():\s]+/', '', (string) $GLOBALS['__preg_warning']);
+    $e = ['name' => $name, 'id' => $id];
+    if ($msg !== '' && $msg !== null) { $e['message'] = $msg; }
     if ($id === 'infinite') { $e['warning'] = true; }
     return (object) $e;
 }

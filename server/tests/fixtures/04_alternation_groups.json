@@ -1,12 +1,43 @@
 {
-  "comment": "unmatched existing groups serialize as {i:0,l:0}",
-  "request": {"pattern": "(a)|(b)", "flags": "g", "mode": "text", "text": "ab"},
-  "response": {
-    "id": null,
-    "mode": "text",
-    "matches": [
-      {"i": 0, "l": 1, "groups": [{"i": 0, "l": 1}, {"i": 0, "l": 0}]},
-      {"i": 1, "l": 1, "groups": [{"i": 0, "l": 0}, {"i": 1, "l": 1}]}
-    ]
-  }
+    "comment": "unmatched existing groups serialize as {i:0,l:0}",
+    "request": {
+        "pattern": "(a)|(b)",
+        "flags": "g",
+        "mode": "text",
+        "text": "ab"
+    },
+    "response": {
+        "id": null,
+        "mode": "text",
+        "matches": [
+            {
+                "i": 0,
+                "l": 1,
+                "groups": [
+                    {
+                        "i": 0,
+                        "l": 1
+                    },
+                    {
+                        "i": 0,
+                        "l": 0
+                    }
+                ]
+            },
+            {
+                "i": 1,
+                "l": 1,
+                "groups": [
+                    {
+                        "i": 0,
+                        "l": 0
+                    },
+                    {
+                        "i": 1,
+                        "l": 1
+                    }
+                ]
+            }
+        ]
+    }
 }

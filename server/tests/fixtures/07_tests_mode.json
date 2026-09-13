@@ -1,15 +1,34 @@
 {
-  "comment": "tests mode: hit {id,i,l}, miss {id} only (no i), start/all judged by frontend",
-  "request": {"pattern": "^ab", "flags": "", "mode": "tests", "tests": [
-    {"id": "t1", "text": "abx", "type": "start"},
-    {"id": "t2", "text": "x", "type": "any"}
-  ]},
-  "response": {
-    "id": null,
-    "mode": "tests",
-    "matches": [
-      {"id": "t1", "i": 0, "l": 2},
-      {"id": "t2"}
-    ]
-  }
+    "comment": "tests mode: hit {id,i,l}, miss {id} only (no i), start/all judged by frontend",
+    "request": {
+        "pattern": "^ab",
+        "flags": "",
+        "mode": "tests",
+        "tests": [
+            {
+                "id": "t1",
+                "text": "abx",
+                "type": "start"
+            },
+            {
+                "id": "t2",
+                "text": "x",
+                "type": "any"
+            }
+        ]
+    },
+    "response": {
+        "id": null,
+        "mode": "tests",
+        "matches": [
+            {
+                "id": "t1",
+                "i": 0,
+                "l": 2
+            },
+            {
+                "id": "t2"
+            }
+        ]
+    }
 }

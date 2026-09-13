@@ -77,11 +77,11 @@ impl CompiledRegex {
                 'S' => 0, // PHP "study" hint: no-op
                 'X' => sys::PCRE2_EXTENDED_MORE,
                 other => {
+                    // Exact wording of PHP's "Unknown modifier 'z'" warning —
+                    // the frontend displays this message verbatim.
                     return Err(SolveError::RegexParse {
-                        message: format!(
-                            "Compilation failed: unknown modifier '{other}' at offset 0"
-                        ),
-                    })
+                        message: format!("Unknown modifier '{other}'"),
+                    });
                 }
             };
         }
@@ -257,6 +257,10 @@ impl CompiledRegex {
             };
             if out.len() < config::MAX_MATCHES {
                 out.push(span);
+            } else {
+                // Limit reached: stop scanning. Continuing would burn up to
+                // MAX_MATCHES..subject.len FFI calls that the result discards.
+                break;
             }
         }
         Ok(out)

@@ -66,7 +66,10 @@ fn form_value(body: &str, key: &str) -> Option<String> {
     // urlencoded bodies from the frontend are built by encodeURIComponent, so
     // `+` never appears; still decode it defensively for other clients.
     for pair in body.split('&') {
-        let (k, v) = pair.split_once('=')?;
+        // skip malformed pairs (no `=`) instead of aborting the whole scan
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
         if percent_decode(k) == key {
             return Some(percent_decode(v));
         }

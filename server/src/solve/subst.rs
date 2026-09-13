@@ -1,19 +1,21 @@
 //! PCRE substitution-string expansion for the `replace` / `list` tools.
 //!
-//! Follows the PHP `preg_replace()` replacement semantics that the original
-//! backend implemented:
-//! - `\1`..`\99`, `$1`..`$99`, `${n}` capture-group references
+//! Follows the PHP `preg_replace()` replacement semantics, verified against
+//! real PHP 8.x (Docker对拍, see scripts/gen-fixtures.php):
+//! - `\1`..`\99`, `$1`..`$99`, `${n}` capture-group references (up to two
+//!   digits parsed for the bare forms)
 //! - `\\` -> literal `\`, `\$` -> literal `$`
 //! - a reference to a group that exists but did not participate -> empty string
-//! - a reference to a group number larger than the pattern's group count:
-//!   try the shorter number (first digit) and emit the leftover digit(s)
-//!   literally (PHP's documented `$13` -> `$1` + `"3"` rule); if even the
-//!   shorter form is invalid, emit the token literally.
+//! - a reference to a group number larger than the pattern's group count ->
+//!   empty string. PHP does NOT decompose (`$13` with one group is empty, not
+//!   `$1` + `"3"` — that is the JS rule; the frontend PCRE profile also sets
+//!   `substdecomposeref: false`).
 //! - `$` / `\` followed by anything else: emitted literally (backslash kept).
 //!
 //! `$&`, `` $` ``, `$'`, `$$` are intentionally NOT implemented: the frontend
 //! PCRE profile (`dev/src/profiles/pcre.js`) disables them, so they never
-//! reach the server in valid input.
+//! reach the server in valid input. `\g{...}` is also not a preg_replace
+//! replacement form and stays literal.
 
 /// Expand the replacement string.
 ///
@@ -52,7 +54,7 @@ pub fn expand<'a>(
                 // ${n} form; if malformed, emit literally.
                 match parse_braced(&chars, i + 2) {
                     Some((n, end)) => {
-                        emit_group(&mut out, n, total_groups, &lookup, &format!("${{{n}}}"));
+                        emit_group(&mut out, n, total_groups, &lookup);
                         i = end;
                     }
                     None => {
@@ -63,24 +65,12 @@ pub fn expand<'a>(
             }
             (_, Some(d)) if c == '$' && d.is_ascii_digit() => {
                 let (n, consumed) = parse_number(&chars, i + 1, 2);
-                emit_group(
-                    &mut out,
-                    n,
-                    total_groups,
-                    &lookup,
-                    &chars[i..i + 1 + consumed].iter().collect::<String>(),
-                );
+                emit_group(&mut out, n, total_groups, &lookup);
                 i += 1 + consumed;
             }
             (_, Some(d)) if c == '\\' && d.is_ascii_digit() => {
                 let (n, consumed) = parse_number(&chars, i + 1, 2);
-                emit_group(
-                    &mut out,
-                    n,
-                    total_groups,
-                    &lookup,
-                    &chars[i..i + 1 + consumed].iter().collect::<String>(),
-                );
+                emit_group(&mut out, n, total_groups, &lookup);
                 i += 1 + consumed;
             }
             _ => {
@@ -121,39 +111,15 @@ fn parse_number(chars: &[char], start: usize, max_digits: usize) -> (usize, usiz
     (n, consumed)
 }
 
-fn digits_of(mut n: usize) -> usize {
-    let mut d = 1;
-    while n >= 10 {
-        n /= 10;
-        d += 1;
-    }
-    d
-}
-
 fn emit_group<'a>(
     out: &mut String,
     n: usize,
     total_groups: usize,
     lookup: &impl Fn(usize) -> Option<&'a str>,
-    literal: &str,
 ) {
     if n > total_groups {
-        // Try PHP's fallback: strip trailing digits until the remaining group
-        // number is valid; otherwise emit the token literally.
-        let nd = digits_of(n);
-        if nd > 1 {
-            let lead = n / 10usize.pow((nd - 1) as u32);
-            if lead != 0 && lead <= total_groups {
-                if let Some(t) = lookup(lead) {
-                    out.push_str(t);
-                }
-                // leftover digits were part of `literal`; re-emit them
-                let leftover = &literal[literal.len() - (nd - digits_of(lead))..];
-                out.push_str(leftover);
-                return;
-            }
-        }
-        out.push_str(literal);
+        // PHP: a reference past the pattern's group count expands to nothing
+        // (verified: `$13` with 1 group -> "", no decomposition, no literal).
         return;
     }
     if let Some(t) = lookup(n) {
@@ -194,14 +160,19 @@ mod tests {
     }
 
     #[test]
-    fn nonexistent_group_fallback() {
+    fn nonexistent_group_is_empty() {
+        // PHP (verified against real PHP 8): a reference past the group count
+        // expands to nothing — no decomposition, no literal echo.
         let lookup = |n: usize| if n == 1 { Some("A") } else { None };
-        // $13 with 1 group -> group 1 + literal "3"
-        assert_eq!(expand("$13", 1, lookup), "A3");
-        // $9 with 1 group -> literal "$9"
-        assert_eq!(expand("$9", 1, lookup), "$9");
-        // \12 with 1 group -> "A2"
-        assert_eq!(expand("\\12", 1, lookup), "A2");
+        assert_eq!(expand("$13", 1, lookup), "");
+        assert_eq!(expand("$9", 1, lookup), "");
+        assert_eq!(expand("\\12", 1, lookup), "");
+        assert_eq!(expand("${13}", 1, lookup), "");
+        // two digits parse as one reference when the group exists
+        let lookup13 = |n: usize| if n == 13 { Some("X") } else { None };
+        assert_eq!(expand("$13", 15, lookup13), "X");
+        // two digits when only a 1-digit group exists: nothing (not $1+"3")
+        assert_eq!(expand("$12", 1, lookup), "");
     }
 
     #[test]

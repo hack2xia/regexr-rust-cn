@@ -1,13 +1,30 @@
 {
-  "comment": "empty matches advance one char per PHP preg_match_all / JS lastIndex++",
-  "request": {"pattern": "a*", "flags": "g", "mode": "text", "text": "baa"},
-  "response": {
-    "id": null,
-    "mode": "text",
-    "matches": [
-      {"i": 0, "l": 0, "groups": []},
-      {"i": 1, "l": 2, "groups": []},
-      {"i": 3, "l": 0, "groups": []}
-    ]
-  }
+    "comment": "empty matches advance one char per PHP preg_match_all / JS lastIndex++",
+    "request": {
+        "pattern": "a*",
+        "flags": "g",
+        "mode": "text",
+        "text": "baa"
+    },
+    "response": {
+        "id": null,
+        "mode": "text",
+        "matches": [
+            {
+                "i": 0,
+                "l": 0,
+                "groups": []
+            },
+            {
+                "i": 1,
+                "l": 2,
+                "groups": []
+            },
+            {
+                "i": 3,
+                "l": 0,
+                "groups": []
+            }
+        ]
+    }
 }

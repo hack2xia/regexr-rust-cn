@@ -20,37 +20,37 @@ pub enum SolveError {
 }
 
 impl SolveError {
-    /// JSON shape consumed by `Text.js _errorText` / `Reference.getError`.
-    /// `id` is the frontend documentation key:
-    ///   regexparse -> compile error, infinite -> limits (rendered as warning),
-    ///   badutf8 -> encoding, error -> generic.
+    /// JSON shape, verified against real PHP (gen-fixtures.php对拍): compile
+    /// errors surface as `{id:"error", name:"PREG_INTERNAL_ERROR", message}`,
+    /// limit errors as warning-shaped `{id:"infinite", name:"PREG_*"}`. The
+    /// `name` keys match entries in the frontend reference docs
+    /// (`reference_content.js`), which `Reference.getError` resolves.
     pub fn to_json(&self) -> Value {
         match self {
             SolveError::RegexParse { message } => json!({
                 "message": message,
-                "name": "CompileError",
-                "id": "regexparse",
+                "name": "PREG_INTERNAL_ERROR",
+                "id": "error",
             }),
+            // Limit errors carry no message: PHP has no warning text for them
+            // (preg_last_error() code only), so the frontend falls back to the
+            // reference-doc tip for `name`.
             SolveError::MatchLimit => json!({
-                "message": "Backtrack limit exhausted",
                 "name": "PREG_BACKTRACK_LIMIT_ERROR",
                 "id": "infinite",
                 "warning": true,
             }),
             SolveError::DepthLimit => json!({
-                "message": "Recursion limit exhausted",
                 "name": "PREG_RECURSION_LIMIT_ERROR",
                 "id": "infinite",
                 "warning": true,
             }),
             SolveError::JitStackLimit => json!({
-                "message": "JIT stack limit exhausted",
                 "name": "PREG_JIT_STACKLIMIT_ERROR",
                 "id": "infinite",
                 "warning": true,
             }),
             SolveError::BadUtf8 => json!({
-                "message": "Malformed UTF-8 subject",
                 "name": "PREG_BAD_UTF8_ERROR",
                 "id": "badutf8",
             }),

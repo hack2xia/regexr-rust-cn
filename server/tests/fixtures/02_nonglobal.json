@@ -1,10 +1,28 @@
 {
-  "comment": "non-global: single match only, replace still global (PHP preg_replace semantics)",
-  "request": {"pattern": "a+", "flags": "", "mode": "text", "text": "aaa bb aaa", "tool": {"id": "replace", "input": "-"}},
-  "response": {
-    "id": null,
-    "mode": "text",
-    "matches": [{"i": 0, "l": 3, "groups": []}],
-    "tool": {"id": "replace", "result": "- bb -"}
-  }
+    "comment": "non-global: single match only, replace still global (PHP preg_replace semantics)",
+    "request": {
+        "pattern": "a+",
+        "flags": "",
+        "mode": "text",
+        "text": "aaa bb aaa",
+        "tool": {
+            "id": "replace",
+            "input": "-"
+        }
+    },
+    "response": {
+        "id": null,
+        "mode": "text",
+        "matches": [
+            {
+                "i": 0,
+                "l": 3,
+                "groups": []
+            }
+        ],
+        "tool": {
+            "id": "replace",
+            "result": "- bb -"
+        }
+    }
 }

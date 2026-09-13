@@ -1,14 +1,38 @@
 {
-  "comment": "list tool: per-match substitution concatenated without separator; $0 = whole match",
-  "request": {"pattern": "\\d+", "flags": "g", "mode": "text", "text": "a1b22c333", "tool": {"id": "list", "input": "<$0>"}},
-  "response": {
-    "id": null,
-    "mode": "text",
-    "matches": [
-      {"i": 1, "l": 1, "groups": []},
-      {"i": 3, "l": 2, "groups": []},
-      {"i": 6, "l": 3, "groups": []}
-    ],
-    "tool": {"id": "list", "result": "<1><22><333>"}
-  }
+    "comment": "list tool: per-match substitution concatenated without separator; $0 = whole match",
+    "request": {
+        "pattern": "\\d+",
+        "flags": "g",
+        "mode": "text",
+        "text": "a1b22c333",
+        "tool": {
+            "id": "list",
+            "input": "<$0>"
+        }
+    },
+    "response": {
+        "id": null,
+        "mode": "text",
+        "matches": [
+            {
+                "i": 1,
+                "l": 1,
+                "groups": []
+            },
+            {
+                "i": 3,
+                "l": 2,
+                "groups": []
+            },
+            {
+                "i": 6,
+                "l": 3,
+                "groups": []
+            }
+        ],
+        "tool": {
+            "id": "list",
+            "result": "<1><22><333>"
+        }
+    }
 }

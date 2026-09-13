@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::config;
 use engine::CompiledRegex;
 use errors::SolveError;
-use offsets::{byte_to_utf16, utf16_len};
+use offsets::Utf16Indexer;
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Tool {
@@ -66,21 +66,21 @@ struct JsonGroup {
     l: usize,
 }
 
-fn json_group(span: Option<(usize, usize)>, s: &str) -> JsonGroup {
+fn json_group(span: Option<(usize, usize)>, ix: &Utf16Indexer) -> JsonGroup {
     match span {
         Some((bs, be)) => JsonGroup {
-            i: byte_to_utf16(s, bs),
-            l: utf16_len(&s[bs..be]),
+            i: ix.utf16_at(bs),
+            l: ix.utf16_at(be) - ix.utf16_at(bs),
         },
         None => JsonGroup { i: 0, l: 0 },
     }
 }
 
-fn json_match(span: &engine::MatchSpan, s: &str) -> JsonMatch {
+fn json_match(span: &engine::MatchSpan, ix: &Utf16Indexer) -> JsonMatch {
     JsonMatch {
-        i: byte_to_utf16(s, span.start),
-        l: utf16_len(&s[span.start..span.end]),
-        groups: span.groups.iter().map(|g| json_group(*g, s)).collect(),
+        i: ix.utf16_at(span.start),
+        l: ix.utf16_at(span.end) - ix.utf16_at(span.start),
+        groups: span.groups.iter().map(|g| json_group(*g, ix)).collect(),
     }
 }
 
@@ -135,12 +135,16 @@ pub fn solve(req: &SolveRequest) -> Value {
             let mut matches = Vec::with_capacity(tests.len().min(config::MAX_TESTS));
             for t in tests.iter().take(config::MAX_TESTS) {
                 let text = t.text.as_deref().unwrap_or("");
+                let ix = Utf16Indexer::new(text);
                 let mut entry = serde_json::Map::new();
                 entry.insert("id".into(), t.id.clone().unwrap_or(Value::Null));
                 match re.match_one(text) {
                     Ok(Some(span)) => {
-                        entry.insert("i".into(), json!(byte_to_utf16(text, span.start)));
-                        entry.insert("l".into(), json!(utf16_len(&text[span.start..span.end])));
+                        entry.insert("i".into(), json!(ix.utf16_at(span.start)));
+                        entry.insert(
+                            "l".into(),
+                            json!(ix.utf16_at(span.end) - ix.utf16_at(span.start)),
+                        );
                     }
                     Ok(None) => {
                         // no i/l fields at all: frontend treats this as "no match"
@@ -162,7 +166,8 @@ pub fn solve(req: &SolveRequest) -> Value {
                 } else {
                     re.match_one(text)?.into_iter().collect()
                 };
-                let matches: Vec<JsonMatch> = spans.iter().map(|sp| json_match(sp, text)).collect();
+                let ix = Utf16Indexer::new(text);
+                let matches: Vec<JsonMatch> = spans.iter().map(|sp| json_match(sp, &ix)).collect();
 
                 let mut data = json!({ "matches": matches });
 

@@ -1,10 +1,11 @@
 //! Static asset serving with rust-embed (all assets embedded in the binary).
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
+use bytes::Bytes;
 use rust_embed::RustEmbed;
 
 use crate::state::AppState;
@@ -56,9 +57,14 @@ fn assemble_index(pcre2_version: &str) -> String {
     html
 }
 
-pub fn assembled_index(state: &AppState) -> &'static str {
-    static INDEX: OnceLock<String> = OnceLock::new();
-    INDEX.get_or_init(|| assemble_index(&state.pcre2_version))
+/// index.html with the phpinject block filled in; assembled once and cached
+/// in `AppState.index` as refcounted `Bytes` (serving clones a handle, never
+/// the page).
+fn assembled_index(state: &AppState) -> Bytes {
+    state
+        .index
+        .get_or_init(|| assemble_index(&state.pcre2_version).into())
+        .clone()
 }
 
 fn serve_key(state: &AppState, key: &str) -> Response {
@@ -82,12 +88,12 @@ fn serve_key(state: &AppState, key: &str) -> Response {
         }
         // Unknown paths fall back to the app (mirrors the old .htaccess
         // rewrite-to-index behavior for deep links).
-        None => Html(assembled_index(state).to_string()).into_response(),
+        None => Html(assembled_index(state)).into_response(),
     }
 }
 
 pub async fn index(State(state): State<Arc<AppState>>) -> Response {
-    Html(assembled_index(&state).to_string()).into_response()
+    Html(assembled_index(&state)).into_response()
 }
 
 pub async fn regexr_js(State(state): State<Arc<AppState>>) -> Response {
@@ -106,5 +112,5 @@ pub async fn asset(State(state): State<Arc<AppState>>, Path(path): Path<String>)
 /// Fallback for unknown paths: serve the app (mirrors the old .htaccess
 /// rewrite-to-index behavior).
 pub async fn fallback(State(state): State<Arc<AppState>>) -> Response {
-    Html(assembled_index(&state).to_string()).into_response()
+    Html(assembled_index(&state)).into_response()
 }

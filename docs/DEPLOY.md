@@ -67,6 +67,7 @@ WantedBy=multi-user.target
 | 并发 | 8 并发上限，满载直接 503（LoadShed），不排队 |
 | 请求超时 | 10s 兜底 |
 | 灾难性回溯 | PCRE2 match_limit=1,000,000 + depth_limit=10,000（病态正则毫秒级返回 `infinite` 警告） |
+| 超大输入 | 匹配数截断于 20,000 后停止扫描；偏移换算为一遍前缀表 O(n+m)——大文本 + 空匹配模式不再产生隐蔽的 CPU 放大 |
 | JIT 栈 | 64KB 起 / 1MB 上限 |
 | 匹配数量 | 单请求最多 20,000 个匹配 |
 | tests 模式 | 单请求最多 1,000 条 |
@@ -133,4 +134,15 @@ Windows 暂不支持（计划 `x86_64-pc-windows-msvc`，未实现）。
 
 仓库页面的「云原生开发」可按需启动 4 核云端开发机（Rust/Node/python3 环境预装）。
 
-fixtures（`server/tests/fixtures/`）可在外部 PHP 环境用 `php scripts/gen-fixtures.php server/tests/fixtures/*.json` 按原 PHP 后端语义重新生成，用于对拍验证。
+fixtures（`server/tests/fixtures/`）的期望值由**真实 PHP** 生成（本机无需装 PHP）：
+
+```bash
+# 金标准 = PHP + mbstring + 强制 /u（与服务器声明的恒 UTF 语义对齐）
+docker run --rm -v "$PWD":/work -w /work php:8-cli \
+    php scripts/gen-fixtures.php server/tests/fixtures/*.json
+cd server && cargo test   # 回放：与 PHP 的任何行为差异会直接失败
+```
+
+脚本要点：恒加 `/u`、`PREG_UNMATCHED_AS_NULL`（未参与分组补全为 `{0,0}`）、
+替换引用越界（如 `$13` 只有 1 组）展开为**空串**（PHP 真实行为，非 JS 的分解规则）、
+错误按请求隔离。
