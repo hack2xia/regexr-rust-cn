@@ -62,7 +62,7 @@ export default class Share extends EventDispatcher {
 	get name() { return this.nameFld.value; }
 	set name(val) {
 		this.nameFld.value = val||"";
-		this.hNameFld.innerText = val||"未命名表达式";
+		if (this.hNameFld) { this.hNameFld.innerText = val||"未命名表达式"; }
 	}
 
 	get author() { return this.authorFld.value; }
@@ -84,18 +84,20 @@ export default class Share extends EventDispatcher {
 		let mainEl = this.mainEl = $.query("> #share_main", el);
 		let comEl = this.communityEl = $.query("> #share_community", el);
 
-		// set up header:
+		// set up header (save/new/settings live in the header; the private
+		// deployment removes them, so every header reference is optional):
 		let hEl = $.query(".header");
 		this.hNewBtn = $.query(".new", hEl);
 		this.hForkBtn = $.query(".fork", hEl);
 		this.hSaveBtn = $.query(".save", hEl);
 		this.hNameFld = $.query(".name", hEl);
-		$.query(".settings", hEl).addEventListener("click", () => this.show());
-		$.query(".savekey", this.hSaveBtn).innerText = "("+Utils.getCtrlKey()+"-s)";
-		this.hSaveBtn.addEventListener("click", () => this._doSave());
-		this.hNewBtn.addEventListener("click", () => this._doNew());
-
-		this._defaultName = this.hNameFld.innerText;
+		if (this.hSaveBtn) {
+			$.query(".settings", hEl).addEventListener("click", () => this.show());
+			$.query(".savekey", this.hSaveBtn).innerText = "("+Utils.getCtrlKey()+"-s)";
+			this.hSaveBtn.addEventListener("click", () => this._doSave());
+			this.hNewBtn.addEventListener("click", () => this._doNew());
+			this._defaultName = this.hNameFld.innerText;
+		}
 
 		// set up main:
 		this._privateRow = $.query(".row.private", this.mainEl);
@@ -154,11 +156,13 @@ export default class Share extends EventDispatcher {
 		let o = this._pattern, text;
 		let isChanged = this._isChanged(), isNew = this._isNew(), isOwned = this._isOwned();
 		
-		$.toggleClass([this.forkBtn, this.hForkBtn], "disabled", !this._canFork());
+		$.toggleClass([this.forkBtn, this.hForkBtn].filter(Boolean), "disabled", !this._canFork());
 		$.toggleClass(this.saveBtn, "disabled", !this._canSave());
 
-		$.toggleClass(this.hSaveBtn, "disabled", !this._canSave() && isOwned);
-		$.query(".action",this.hSaveBtn).innerText = isOwned ? "保存" : "Fork";
+		if (this.hSaveBtn) {
+			$.toggleClass(this.hSaveBtn, "disabled", !this._canSave() && isOwned);
+			$.query(".action", this.hSaveBtn).innerText = isOwned ? "保存" : "Fork";
+		}
 
 		if (!isOwned) { text = "本正则表达式由 '"+(o.author||"[anonymous]")+"'创建。"; }
 		else if (!isChanged) { text = "未做改动。" }
@@ -215,6 +219,7 @@ export default class Share extends EventDispatcher {
 	}
 
 	_handleKey(evt) {
+		if (!this.hSaveBtn) { return; } // save UI removed in the private deployment
 		let mac = Utils.isMac();
 		if (evt.key === "s" && ((mac && evt.metaKey) || (!mac && evt.ctrlKey))) {
 			this._doSave(false);

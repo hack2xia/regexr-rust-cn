@@ -26,25 +26,6 @@ home.kids = [
 
 
 	{
-	label: "正则表达式设置",
-	id: "share",
-	el: "#share_main",
-	list: false,
-	kids: [
-		{
-		label: "保存到我的收藏夹",
-		id: "share_favorites",
-		el:"#share_favorites"
-		},
-		{
-		label: "社区分享",
-		id: "share_community",
-		el:"#share_community"
-		}
-	]
-	},
-
-	{
 	label: "备忘单",
 	id:"cheatsheet",
 	el: "#cheatsheet"
