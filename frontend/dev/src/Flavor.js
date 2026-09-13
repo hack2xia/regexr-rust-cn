@@ -35,7 +35,7 @@ export default class Flavor extends EventDispatcher {
 	}
 	
 	set value(id) {
-		let profile = profiles[(id && id.toLowerCase()) || "js"];
+		let profile = profiles[(id && id.toLowerCase()) || "pcre"];
 		if (!profile || profile === this._profile) { return; }
 
 		this._profile = profile;
