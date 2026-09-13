@@ -22,7 +22,7 @@ proptest! {
         text in ".*",
         pattern in prop::sample::select(PATTERNS.to_vec()),
     ) {
-        let re = CompiledRegex::compile(&pattern, "g").unwrap();
+        let re = CompiledRegex::compile(pattern, "g").unwrap();
         // A limit error is a legitimate result for adversarial inputs;
         // the invariant below only concerns successful matches.
         let spans = match re.match_all(&text) {
