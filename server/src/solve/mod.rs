@@ -110,7 +110,7 @@ pub fn solve(req: &SolveRequest) -> Value {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0),
-                    "time": elapsed_secs(started),
+                    "time": elapsed_ms(started),
                     "mode": mode,
                     "matches": matches,
                 });
@@ -125,7 +125,7 @@ pub fn solve(req: &SolveRequest) -> Value {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0),
-        "time": elapsed_secs(started),
+        "time": elapsed_ms(started),
         "mode": mode,
     });
 
@@ -234,12 +234,15 @@ pub fn solve(req: &SolveRequest) -> Value {
         }
     }
 
-    data["time"] = json!(elapsed_secs(started));
+    data["time"] = json!(elapsed_ms(started));
     data
 }
 
-fn elapsed_secs(started: std::time::Instant) -> f64 {
-    started.elapsed().as_secs_f64()
+/// Milliseconds, matching what the frontend displays (`(N毫秒)`) and what
+/// the PHP backend sent — browser engines also report ms, so both engine
+/// timings are directly comparable.
+fn elapsed_ms(started: std::time::Instant) -> f64 {
+    started.elapsed().as_secs_f64() * 1000.0
 }
 
 fn solve_error_data(
@@ -254,7 +257,7 @@ fn solve_error_data(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0),
-        "time": elapsed_secs(started),
+        "time": elapsed_ms(started),
         "mode": mode,
         "matches": [],
         "error": e.to_json(),

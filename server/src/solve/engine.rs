@@ -337,13 +337,20 @@ impl CompiledRegex {
             out.push(span);
 
             if is_empty {
+                // The empty match may have been found by a FORWARD scan
+                // (span_end > start, e.g. `/$/g` matching at end-of-subject
+                // or `/(?=b)/g` jumping ahead). Anchor the next attempt at
+                // the match's own end: PHP sets start_offset = offsets[1]
+                // for every match, and rescanning from the old `start` would
+                // return the same empty match once per scanned position.
+                start = span_end;
+                if start == bytes.len() {
+                    break;
+                }
                 // Empty match was recorded; retry non-empty at the SAME
                 // offset next iteration (PCRE2-recommended algorithm, also
                 // what PHP's php_pcre.c does). At end-of-subject the retry
                 // can never match.
-                if start == bytes.len() {
-                    break;
-                }
                 options = sys::PCRE2_ANCHORED | sys::PCRE2_NOTEMPTY_ATSTART;
             } else {
                 options = 0;
@@ -571,6 +578,54 @@ mod tests {
         // "" at the emoji, "x" at 4..5, then "" at the end.
         let pairs: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
         assert_eq!(pairs, vec![(0, 0), (4, 5), (5, 5)]);
+    }
+
+    #[test]
+    fn empty_match_found_by_forward_scan_is_returned_once() {
+        // Regression: `/$/` never matches at the search start — PCRE2 scans
+        // forward to end-of-subject and returns an empty match at 3. The
+        // next attempt must anchor at span.end (3), not rescan from 0, or
+        // the same empty match is returned once per scanned position.
+        let re = CompiledRegex::compile(r"$", "g").unwrap();
+        let spans = re.match_all("abc").unwrap();
+        let pairs: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(pairs, vec![(3, 3)]);
+    }
+
+    #[test]
+    fn lookahead_empty_match_found_by_forward_scan_is_returned_once() {
+        // `(?=b)` first matches (empty) at 1 via forward scan from 0.
+        let re = CompiledRegex::compile(r"(?=b)", "g").unwrap();
+        let spans = re.match_all("ab").unwrap();
+        let pairs: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(pairs, vec![(1, 1)]);
+    }
+
+    #[test]
+    fn empty_match_at_end_replaces_once() {
+        // Replace/List amplify duplicate empty matches: the tail substitution
+        // must run exactly once (PHP: preg_replace('/$/','X','abc')==='abcX').
+        let re = CompiledRegex::compile(r"$", "g").unwrap();
+        assert_eq!(re.replace("abc", "X").unwrap(), "abcX");
+        assert_eq!(re.list("abc", "<$0>").unwrap(), "<>");
+    }
+
+    #[test]
+    fn lookahead_empty_match_replaces_once() {
+        // PHP: preg_replace('/(?=b)/','X','ab')==='aXb'.
+        let re = CompiledRegex::compile(r"(?=b)", "g").unwrap();
+        assert_eq!(re.replace("ab", "X").unwrap(), "aXb");
+        assert_eq!(re.list("ab", "-").unwrap(), "-");
+    }
+
+    #[test]
+    fn empty_match_forward_scan_multibyte_end() {
+        // `$` on multibyte text: one empty match at the byte offset after
+        // the last character (and never mid-sequence).
+        let re = CompiledRegex::compile(r"$", "g").unwrap();
+        let spans = re.match_all("中文").unwrap();
+        let pairs: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(pairs, vec![(6, 6)]);
     }
 
     #[test]

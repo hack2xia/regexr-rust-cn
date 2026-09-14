@@ -10,7 +10,12 @@ BIN="${1:-$ROOT/server/target/x86_64-unknown-linux-musl/release/regexr-server}"
 
 if [ ! -x "$BIN" ]; then
   echo "==> no binary at $BIN; building local debug binary"
-  cargo build --quiet --manifest-path "$ROOT/server/Cargo.toml"
+  # rust-embed embeds server/static/ at compile time (gitignored build
+  # output) — the frontend build must precede cargo on a fresh checkout.
+  if [ ! -f "$ROOT/server/static/index.html" ]; then
+    ./scripts/build-frontend.sh
+  fi
+  cargo build --quiet --locked --manifest-path "$ROOT/server/Cargo.toml"
   BIN="$ROOT/server/target/debug/regexr-server"
 fi
 

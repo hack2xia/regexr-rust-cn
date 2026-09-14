@@ -44,7 +44,10 @@ GPL-3.0 合规提示：仅自用（不对外分发）不触发分发义务；若
 
 ```bash
 # 开发/测试后端（需要 Rust 1.75+，PCRE2 源码由 crate vendored）
-cd server && cargo test
+# 注意：server/static/ 是 gitignored 的前端构建产物，rust-embed 编译时要求
+# 该目录存在 —— 全新 checkout 必须先构建前端，再跑测试：
+./scripts/build-frontend.sh
+cargo test --locked --manifest-path server/Cargo.toml
 
 # 完整构建与部署（前端 Node 18+，交叉编译需要 Docker）
 ./scripts/build-frontend.sh

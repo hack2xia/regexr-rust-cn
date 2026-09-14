@@ -97,6 +97,9 @@ jobs:
           mkdir "$dir"
           cp server/target/${{ matrix.target }}/release/regexr-server "$dir"/
           cp README.md docs/DEPLOY.md "$dir"/
+          # GPL compliance: every distributed package must carry the license
+          # (the binary embeds the GPL frontend).
+          cp frontend/LICENSE "$dir"/LICENSE
           tar czf "$dir".tar.gz "$dir"
           sha256sum "$dir".tar.gz > "$dir".tar.gz.sha256
 

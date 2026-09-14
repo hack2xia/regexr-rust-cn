@@ -38,10 +38,10 @@ jobs:
         run: cargo fmt --manifest-path server/Cargo.toml --check
 
       - name: clippy
-        run: cargo clippy --manifest-path server/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warnings
 
       - name: tests
-        run: cargo test --manifest-path server/Cargo.toml
+        run: cargo test --locked --manifest-path server/Cargo.toml
 
   # Weekly only: vendored PCRE2 source never updates itself, so audit for
   # advisories (Rust crates + rust-embed/pcre2-sys) on the scheduled run.

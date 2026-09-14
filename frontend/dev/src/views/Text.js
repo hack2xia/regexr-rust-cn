@@ -195,7 +195,13 @@ export default class Text extends EventDispatcher {
 		let result = this._result, matches=result&&result.matches, l=matches&&matches.length, text;
 
 		if (l && result && !result.error) {
-			text = l + " 结果" + (this._emptyCount?"*":"");
+			// Backend capped the display scan (see MAX_MATCHES): make the
+			// truncation visible instead of implying a complete result.
+			if (result.truncated) {
+				text = l + "+ 结果（已达到展示上限）" + (this._emptyCount?"*":"");
+			} else {
+				text = l + " 结果" + (this._emptyCount?"*":"");
+			}
 		} else if (!result || !result.error) {
 			text = "无结果";
 		}
@@ -249,6 +255,9 @@ export default class Text extends EventDispatcher {
 			if (this.mode === "tests") {
 				if (this._tests.length === 0) {
 					str += "用'添加测试'按钮创建新的测试。";
+				} else if (this._testErrors) {
+					str += this._testErrors+"/"+l+"个测试执行错误（规则在对应文本上运行失败）。";
+					if (this._testFails) { str += this._testFails+"/"+l+"个测试失败。"; }
 				} else if (this._testFails) {
 					str += this._testFails+"/"+l+"个测试失败。";
 				} else {
@@ -257,6 +266,9 @@ export default class Text extends EventDispatcher {
 			} else {
 				str += "在 "+this.value.length+"字符中"+(l?"找到":"无")+"结果";
 				str += this._emptyCount  ? ", 其中 "+this._emptyCount+" 空结果(未显示 \"*\")。" : "。";
+				if (res && res.truncated) {
+					str += "<hr><span class='error'>结果已达到展示上限（20000），实际匹配数更多；Replace/List 工具输出仍是完整计算的。</span>";
+				}
 				let cm = this.editor, sel = cm.listSelections()[0], pos = sel.head;
 				let i0 = cm.indexFromPos(pos), i1=cm.indexFromPos(sel.anchor), range=Math.abs(i0-i1);
 				str += "<hr>插入点：  "+pos.line+", 行 "+pos.ch+"列, 下标 "+i0;
@@ -319,9 +331,18 @@ export default class Text extends EventDispatcher {
 		let data = this._tests, l=data.length;
 		if (!data || !l) { return this._showResult("无测试."); }
 
-		let matches = result.matches.reduce((o, t) => { o[t.id] = t; return o; }, {}), fails=0;
+		let matches = result.matches.reduce((o, t) => { o[t.id] = t; return o; }, {}), fails=0, errors=0;
 		for (let i=0; i<l; i++) {
 			let test = data[i], match=matches[test.id], pass=false, el=this.testList.getEl(test.id);
+			if (!match || match.error != null) {
+				// Execution error (match/depth limit, ...) or no result
+				// returned at all (truncated_tests): report as an error,
+				// never as pass/fail. A "none" test would otherwise PASS on
+				// an error because the match entry carries no `i` field.
+				$.toggleClass(el, "fail", true);
+				errors++;
+				continue;
+			}
 			if (test.type === "none") {
 				pass = (match.i == null);
 			} else if (test.type === "all") {
@@ -336,12 +357,21 @@ export default class Text extends EventDispatcher {
 		}
 
 		this._testFails = fails;
+		this._testErrors = errors;
 		this._testMatches = matches;
-		if (fails) {
-			this._showResult(fails+" 未通过", "fail");
+		let text;
+		if (errors) {
+			text = errors+" 条执行错误";
+			if (fails) { text += "，"+fails+" 未通过"; }
+		} else if (fails) {
+			text = fails+" 未通过";
 		} else {
-			this._showResult("通过", "pass");
+			text = "通过";
 		}
+		if (result.truncated_tests) {
+			text += "（仅处理前 "+result.matches.length+" 条，其余已截断）";
+		}
+		this._showResult(text, errors ? "error" : (fails ? "fail" : "pass"));
 
 		this._updateSelTest();
 	}

@@ -115,14 +115,34 @@ def main():
         html = raw.decode("utf-8", "replace")
         if status != 200:
             failures.append(f"GET /: HTTP {status}")
-        if "regexr.init(false," not in html:
-            failures.append("GET /: phpinject init missing")
+        # Init data is served as an external script (/server/init.js) so the
+        # CSP can omit 'unsafe-inline'; the homepage must reference it and
+        # must NOT carry an inline init anymore.
+        if "/server/init.js" not in html:
+            failures.append("GET /: external init script reference missing")
+        if "regexr.init(false," in html:
+            failures.append("GET /: unexpected inline init (CSP unsafe-inline regression)")
         if "id=\"regexWorker\"" not in html:
             failures.append("GET /: inline worker missing")
         if headers.get("x-frame-options") != "DENY":
             failures.append("GET /: x-frame-options missing")
         if "default-src 'self'" not in (headers.get("content-security-policy") or ""):
             failures.append("GET /: CSP missing")
+
+        # The external init script must serve the logged-out init call and
+        # the PCRE2 version, with a JavaScript content type.
+        status, headers, raw = request(port, "GET", "/server/init.js")
+        init_js = raw.decode("utf-8", "replace")
+        if status != 200:
+            failures.append(f"GET /server/init.js: HTTP {status}")
+        if "regexr.init(false," not in init_js:
+            failures.append("GET /server/init.js: init call missing")
+        if "PCREVersion" not in init_js:
+            failures.append("GET /server/init.js: PCREVersion missing")
+        if "javascript" not in (headers.get("content-type") or "").lower():
+            failures.append(
+                f"GET /server/init.js: content-type {headers.get('content-type')!r} not JavaScript"
+            )
 
         if failures:
             print(f"SMOKE FAIL ({len(failures)} failures / {count} fixtures):")
