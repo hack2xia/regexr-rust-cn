@@ -73,7 +73,15 @@ jobs:
 
       - name: package
         run: |
-          dir=regexr-server-${{ github.ref_name }}-${{ matrix.target }}
+          # friendlier asset names; fall back to the raw Rust target triple
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-musl)  short=linux-x86_64-musl ;;
+            aarch64-unknown-linux-musl) short=linux-aarch64-musl ;;
+            aarch64-apple-darwin)       short=macos-aarch64 ;;
+            x86_64-apple-darwin)        short=macos-x86_64 ;;
+            *)                          short=${{ matrix.target }} ;;
+          esac
+          dir=regexr-server-${{ github.ref_name }}-$short
           mkdir "$dir"
           cp server/target/${{ matrix.target }}/release/regexr-server "$dir"/
           cp README.md docs/DEPLOY.md "$dir"/
