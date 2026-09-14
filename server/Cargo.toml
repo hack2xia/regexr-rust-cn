@@ -1,6 +1,6 @@
 [package]
 name = "regexr-server"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Private intranet RegExr deployment: static frontend + PCRE2 solve API (Rust replacement for the PHP backend)"
