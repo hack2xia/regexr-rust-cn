@@ -47,7 +47,21 @@ pub async fn handle(State(state): State<Arc<AppState>>, body: String) -> Respons
         // PCRE2 matching is synchronous FFI: run it on the blocking pool so
         // the async runtime stays responsive. The hard anti-DoS limits are
         // the PCRE2 match/depth limits (see config.rs), not this thread.
-        match tokio::task::spawn_blocking(move || solve::solve(&req)).await {
+        //
+        // The semaphore permit is moved into the blocking closure so it is
+        // held for the entire lifetime of the PCRE2 task. try_acquire (no
+        // queueing) keeps the overload behavior of the old load_shed layer:
+        // full => 503 immediately.
+        let permit = match state.solve_semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "server busy").into_response(),
+        };
+        match tokio::task::spawn_blocking(move || {
+            let _permit = permit; // held until the solve finishes
+            solve::solve(&req)
+        })
+        .await
+        {
             Ok(data) => envelope_success(data, started),
             Err(e) => envelope_error(CODE_UNKNOWN, &format!("internal error: {e}"), started),
         }
@@ -125,7 +139,19 @@ fn envelope_success(data: Value, started: std::time::Instant) -> Response {
         "data": data,
         "metadata": metadata(started),
     });
-    json_response(body)
+    // Serialize once; the size check against the exact wire format is the
+    // authoritative backstop (per-tool/cell budgets bound the payload
+    // upstream). Never stream an oversized response.
+    let serialized = body.to_string();
+    if serialized.len() > crate::config::MAX_RESPONSE_BYTES {
+        return envelope_error(CODE_UNKNOWN, "response too large", started);
+    }
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        serialized,
+    )
+        .into_response()
 }
 
 fn envelope_error(code: i64, message: &str, started: std::time::Instant) -> Response {

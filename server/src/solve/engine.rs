@@ -58,7 +58,10 @@ impl CompiledRegex {
         }
 
         let mut global = false;
-        let mut options: u32 = sys::PCRE2_UTF;
+        // Always-on options mirror what PHP's `u` modifier sets (php-src
+        // php_pcre.c): UTF + UCP (so \w, \d, \s, \b use Unicode properties)
+        // + NEVER_BACKSLASH_C (\C is unsafe in UTF mode).
+        let mut options: u32 = sys::PCRE2_UTF | sys::PCRE2_UCP | sys::PCRE2_NEVER_BACKSLASH_C;
         for c in flags.chars() {
             options |= match c {
                 'g' => {
@@ -67,6 +70,7 @@ impl CompiledRegex {
                 }
                 'i' => sys::PCRE2_CASELESS,
                 'm' => sys::PCRE2_MULTILINE,
+                'n' => sys::PCRE2_NO_AUTO_CAPTURE,
                 's' => sys::PCRE2_DOTALL,
                 'x' => sys::PCRE2_EXTENDED,
                 'u' => sys::PCRE2_UTF, // always on
@@ -74,8 +78,13 @@ impl CompiledRegex {
                 'A' => sys::PCRE2_ANCHORED,
                 'D' => sys::PCRE2_DOLLAR_ENDONLY,
                 'J' => sys::PCRE2_DUPNAMES,
+                // Whitespace modifiers are ignored by PHP.
+                ' ' | '\n' | '\r' => 0,
                 'S' => 0, // PHP "study" hint: no-op
-                'X' => sys::PCRE2_EXTENDED_MORE,
+                // PHP keeps `X` as a recognized-but-ignored modifier since
+                // PCRE2 dropped PCRE_EXTRA (php_pcre.c: `case 'X': /* Pass.
+                // */ break;`). It is NOT PCRE2_EXTENDED_MORE ("xx").
+                'X' => 0,
                 other => {
                     // Exact wording of PHP's "Unknown modifier 'z'" warning —
                     // the frontend displays this message verbatim.
@@ -110,34 +119,58 @@ impl CompiledRegex {
         }
 
         unsafe {
-            // JIT: failure is non-fatal, fall back to the interpreter.
-            let jit = sys::pcre2_jit_compile_8(code, sys::PCRE2_JIT_COMPLETE) >= 0;
-
+            // Fail closed: without match_data the FFI match call would violate
+            // its preconditions, and without a match context the anti-DoS
+            // limits below could not be installed. Release everything we may
+            // have allocated and bail out.
             let match_data =
                 sys::pcre2_match_data_create_from_pattern_8(code, std::ptr::null_mut());
             let mcontext = sys::pcre2_match_context_create_8(std::ptr::null_mut());
-            let mut jit_stack: *mut sys::pcre2_jit_stack_8 = std::ptr::null_mut();
-            if !mcontext.is_null() {
-                // Hard anti-DoS limits (see config.rs). These live on the
-                // match context in PCRE2's API.
-                sys::pcre2_set_match_limit_8(mcontext, config::PCRE2_MATCH_LIMIT);
-                sys::pcre2_set_depth_limit_8(mcontext, config::PCRE2_DEPTH_LIMIT);
-                jit_stack = sys::pcre2_jit_stack_create_8(
-                    config::JIT_STACK_START,
-                    config::JIT_STACK_MAX,
-                    std::ptr::null_mut(),
-                );
-                if !jit_stack.is_null() {
-                    sys::pcre2_jit_stack_assign_8(mcontext, None, jit_stack as *mut _);
+            if match_data.is_null() || mcontext.is_null() {
+                if !mcontext.is_null() {
+                    sys::pcre2_match_context_free_8(mcontext);
                 }
+                if !match_data.is_null() {
+                    sys::pcre2_match_data_free_8(match_data);
+                }
+                return Err(SolveError::Internal {
+                    code: 0,
+                    message: "PCRE2 allocation failed".into(),
+                });
+            }
+
+            // Hard anti-DoS limits (see config.rs). These live on the
+            // match context in PCRE2's API. A non-zero return means the
+            // limit was NOT installed: refuse to compile rather than run
+            // an unbounded regex.
+            if sys::pcre2_set_match_limit_8(mcontext, config::PCRE2_MATCH_LIMIT) != 0
+                || sys::pcre2_set_depth_limit_8(mcontext, config::PCRE2_DEPTH_LIMIT) != 0
+            {
+                sys::pcre2_match_context_free_8(mcontext);
+                sys::pcre2_match_data_free_8(match_data);
+                return Err(SolveError::Internal {
+                    code: 0,
+                    message: "failed to install PCRE2 match limits".into(),
+                });
+            }
+
+            let jit_stack: *mut sys::pcre2_jit_stack_8 = sys::pcre2_jit_stack_create_8(
+                config::JIT_STACK_START,
+                config::JIT_STACK_MAX,
+                std::ptr::null_mut(),
+            );
+            // JIT: failure is non-fatal, fall back to the interpreter. If the
+            // JIT stack could not be created, force the interpreter too — a
+            // JIT-compiled pattern without an assigned stack would fall back
+            // per-call anyway, and this keeps the choice explicit.
+            let jit_ok = sys::pcre2_jit_compile_8(code, sys::PCRE2_JIT_COMPLETE) >= 0;
+            let jit = jit_ok && !jit_stack.is_null();
+            if !jit_stack.is_null() {
+                sys::pcre2_jit_stack_assign_8(mcontext, None, jit_stack as *mut _);
             }
 
             // ovector count is the number of (start,end) pairs = ngroups + 1.
-            let pairs = if match_data.is_null() {
-                0
-            } else {
-                sys::pcre2_get_ovector_count_8(match_data) as usize
-            };
+            let pairs = sys::pcre2_get_ovector_count_8(match_data) as usize;
 
             Ok(CompiledRegex {
                 code,
@@ -160,15 +193,24 @@ impl CompiledRegex {
     }
 
     /// Run one match attempt at `start`. `Ok(true)` = matched.
-    fn exec(&self, subject: &[u8], start: usize) -> Result<bool, SolveError> {
+    ///
+    /// `options` are extra match options (e.g. `PCRE2_ANCHORED |
+    /// PCRE2_NOTEMPTY_ATSTART` for the empty-match retry in `match_all`).
+    fn exec(&self, subject: &[u8], start: usize, options: u32) -> Result<bool, SolveError> {
+        // The JIT fast path only supports a subset of match-time options:
+        // PCRE2_ANCHORED is honored by the interpreter (and the pcre2_match
+        // wrapper would re-route to it), but pcre2_jit_match silently IGNORES
+        // it, which would turn the empty-match retry into a forward scan. So
+        // any anchored call must go to the interpreter.
+        let use_jit = self.jit && (options & sys::PCRE2_ANCHORED) == 0;
         let rc = unsafe {
-            if self.jit {
+            if use_jit {
                 sys::pcre2_jit_match_8(
                     self.code,
                     subject.as_ptr(),
                     subject.len(),
                     start,
-                    0,
+                    options,
                     self.match_data,
                     self.mcontext,
                 )
@@ -178,7 +220,7 @@ impl CompiledRegex {
                     subject.as_ptr(),
                     subject.len(),
                     start,
-                    0,
+                    options,
                     self.match_data,
                     self.mcontext,
                 )
@@ -226,49 +268,101 @@ impl CompiledRegex {
         }
     }
 
-    /// Find all matches. Global iteration mirrors `preg_match_all`: after an
-    /// empty match the scan position advances by exactly one byte
-    /// (PHP php_pcre.c semantics; also what the JS worker does via lastIndex++).
-    pub fn match_all(&self, subject: &str) -> Result<Vec<MatchSpan>, SolveError> {
+    /// Find all matches with explicit resource budgets.
+    ///
+    /// Global iteration follows the PCRE2-recommended algorithm (also what
+    /// PHP's php_pcre.c does, and what the fixtures are generated with):
+    /// after an empty match, retry at the *same* offset with
+    /// `PCRE2_ANCHORED | PCRE2_NOTEMPTY_ATSTART`; only if that fails advance
+    /// by exactly one UTF-8 character. This finds non-empty alternative
+    /// branches at the same position (e.g. `(?:|a)`) that a plain
+    /// advance-one-char loop would miss.
+    ///
+    /// * `max_matches = Some(n)`: stop scanning after `n` matches and report
+    ///   `truncated = true` (never silently).
+    /// * `max_matches = None`: scan everything, bounded only by
+    ///   `MAX_CAPTURE_CELLS` (a `ResultTooLarge` error, not truncation).
+    pub fn match_all_limited(
+        &self,
+        subject: &str,
+        max_matches: Option<usize>,
+    ) -> Result<(Vec<MatchSpan>, bool), SolveError> {
         let bytes = subject.as_bytes();
         let mut out: Vec<MatchSpan> = Vec::new();
         let mut start: usize = 0;
+        let mut options: u32 = 0;
 
         loop {
             if start > bytes.len() {
                 break;
             }
-            if !self.exec(bytes, start)? {
-                break;
-            }
-            let span = self.current_span(bytes);
-            start = if span.end == span.start {
-                // Advance one *character*, not one byte: PCRE2 accepts a
-                // mid-UTF-8-sequence start offset (byte semantics), but a
-                // non-boundary match offset cannot be converted to UTF-16
-                // for the frontend (and PHP's UTF mode advances one char too).
-                let mut next = span.end + 1;
+            if !self.exec(bytes, start, options)? {
+                if options == 0 {
+                    break; // no more matches at all
+                }
+                // The non-empty retry at the same offset failed: advance one
+                // *character*, not one byte (PCRE2 accepts a mid-UTF-8
+                // sequence start offset, but a non-boundary offset cannot be
+                // converted to UTF-16 for the frontend; PHP's UTF mode
+                // advances one char too), then resume normal matching.
+                options = 0;
+                let mut next = start + 1;
                 while next < bytes.len() && !subject.is_char_boundary(next) {
                     next += 1;
                 }
-                next
+                start = next;
+                continue;
+            }
+            let span = self.current_span(bytes);
+            let is_empty = span.end == span.start;
+            let span_end = span.end;
+
+            if let Some(max) = max_matches {
+                if out.len() >= max {
+                    // Limit reached: stop scanning. Continuing would burn up
+                    // to MAX_MATCHES..subject.len FFI calls that the result
+                    // discards.
+                    return Ok((out, true));
+                }
+            }
+            // Cell budget: matches x (groups + full match). checked math so
+            // a pathological pattern/text combination errors out instead of
+            // attempting a gigabyte-scale allocation.
+            let cells = (out.len() + 1)
+                .checked_mul(self.ngroups.saturating_add(1))
+                .ok_or(SolveError::ResultTooLarge)?;
+            if cells > config::MAX_CAPTURE_CELLS {
+                return Err(SolveError::ResultTooLarge);
+            }
+            out.push(span);
+
+            if is_empty {
+                // Empty match was recorded; retry non-empty at the SAME
+                // offset next iteration (PCRE2-recommended algorithm, also
+                // what PHP's php_pcre.c does). At end-of-subject the retry
+                // can never match.
+                if start == bytes.len() {
+                    break;
+                }
+                options = sys::PCRE2_ANCHORED | sys::PCRE2_NOTEMPTY_ATSTART;
             } else {
-                span.end
-            };
-            if out.len() < config::MAX_MATCHES {
-                out.push(span);
-            } else {
-                // Limit reached: stop scanning. Continuing would burn up to
-                // MAX_MATCHES..subject.len FFI calls that the result discards.
-                break;
+                options = 0;
+                start = span_end;
             }
         }
-        Ok(out)
+        Ok((out, false))
+    }
+
+    /// Find all matches under the default match-count cap.
+    pub fn match_all(&self, subject: &str) -> Result<Vec<MatchSpan>, SolveError> {
+        Ok(self
+            .match_all_limited(subject, Some(config::MAX_MATCHES))?
+            .0)
     }
 
     /// First match only (non-global semantics).
     pub fn match_one(&self, subject: &str) -> Result<Option<MatchSpan>, SolveError> {
-        if self.exec(subject.as_bytes(), 0)? {
+        if self.exec(subject.as_bytes(), 0, 0)? {
             Ok(Some(self.current_span(subject.as_bytes())))
         } else {
             Ok(None)
@@ -295,13 +389,33 @@ impl CompiledRegex {
     /// PHP `preg_replace` semantics: replace every match (always global),
     /// expanding the replacement string per match.
     pub fn replace(&self, subject: &str, repl: &str) -> Result<String, SolveError> {
-        let spans = self.match_all(subject)?;
-        let mut out = String::with_capacity(subject.len());
+        let (spans, _) = self.match_all_limited(subject, None)?;
+        self.replace_with_spans(subject, &spans, repl)
+    }
+
+    /// Replace pre-computed spans (avoids re-running `match_all` when the
+    /// caller already has them). Output is bounded by `MAX_TOOL_RESULT_BYTES`;
+    /// exceeding it is a hard error, never a silently truncated string.
+    pub fn replace_with_spans(
+        &self,
+        subject: &str,
+        spans: &[MatchSpan],
+        repl: &str,
+    ) -> Result<String, SolveError> {
+        let mut out = String::new();
+        out.try_reserve(subject.len().saturating_add(repl.len()))
+            .map_err(|_| SolveError::ResultTooLarge)?;
         let mut last = 0usize;
-        for sp in &spans {
+        for sp in spans {
             out.push_str(&subject[last..sp.start]);
-            let lookup = self.group_lookup(subject, sp);
-            out.push_str(&crate::solve::subst::expand(repl, self.ngroups, lookup));
+            let expansion = {
+                let lookup = self.group_lookup(subject, sp);
+                crate::solve::subst::expand(repl, self.ngroups, lookup)
+            };
+            if out.len() + expansion.len() > config::MAX_TOOL_RESULT_BYTES {
+                return Err(SolveError::ResultTooLarge);
+            }
+            out.push_str(&expansion);
             last = sp.end;
         }
         out.push_str(&subject[last..]);
@@ -311,11 +425,27 @@ impl CompiledRegex {
     /// PHP `list` tool semantics: each matched text is replaced (limit 1)
     /// independently and all results are concatenated without separator.
     pub fn list(&self, subject: &str, repl: &str) -> Result<String, SolveError> {
-        let spans = self.match_all(subject)?;
+        let (spans, _) = self.match_all_limited(subject, None)?;
+        self.list_with_spans(subject, &spans, repl)
+    }
+
+    /// List pre-computed spans; same output budget as `replace_with_spans`.
+    pub fn list_with_spans(
+        &self,
+        subject: &str,
+        spans: &[MatchSpan],
+        repl: &str,
+    ) -> Result<String, SolveError> {
         let mut out = String::new();
-        for sp in &spans {
-            let lookup = self.group_lookup(subject, sp);
-            out.push_str(&crate::solve::subst::expand(repl, self.ngroups, lookup));
+        for sp in spans {
+            let expansion = {
+                let lookup = self.group_lookup(subject, sp);
+                crate::solve::subst::expand(repl, self.ngroups, lookup)
+            };
+            if out.len() + expansion.len() > config::MAX_TOOL_RESULT_BYTES {
+                return Err(SolveError::ResultTooLarge);
+            }
+            out.push_str(&expansion);
         }
         Ok(out)
     }
@@ -403,6 +533,18 @@ mod tests {
     }
 
     #[test]
+    fn empty_match_retries_nonempty_alternative() {
+        // PCRE2/PHP global iteration: after the empty match at 0, a non-empty
+        // retry at the same offset must find the "a" branch of (?:|a). At
+        // offset 1 the subject has 'b', so the retry fails there and the scan
+        // advances one char.
+        let re = CompiledRegex::compile(r"(?:|a)", "g").unwrap();
+        let spans = re.match_all("ab").unwrap();
+        let pairs: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(pairs, vec![(0, 0), (0, 1), (1, 1), (2, 2)]);
+    }
+
+    #[test]
     fn empty_match_global_does_not_hang() {
         let re = CompiledRegex::compile("a*", "g").unwrap();
         let spans = re.match_all("baa").unwrap();
@@ -464,6 +606,42 @@ mod tests {
         let re = CompiledRegex::compile(r"\d+", "g").unwrap();
         let out = re.list("a1b22c333", "<$0>").unwrap();
         assert_eq!(out, "<1><22><333>");
+    }
+
+    #[test]
+    fn many_groups_hit_capture_cell_budget() {
+        // (x?) never consumes 'a', so every position yields one empty match
+        // carrying 601 cells: 2000 positions x 601 > MAX_CAPTURE_CELLS must
+        // error instead of building the full span list.
+        let pattern = "(x?)".repeat(600);
+        let re = CompiledRegex::compile(&pattern, "g").unwrap();
+        let text = "a".repeat(2000);
+        match re.match_all(&text) {
+            Err(SolveError::ResultTooLarge) => {}
+            other => panic!("expected ResultTooLarge, got {:?}", other.map(|v| v.len())),
+        }
+    }
+
+    #[test]
+    fn replace_output_budget_is_enforced() {
+        // 10,000 matches x 1KiB replacement = ~10MB > MAX_TOOL_RESULT_BYTES.
+        let re = CompiledRegex::compile(r"a", "g").unwrap();
+        let text = "a".repeat(10_000);
+        let repl = "x".repeat(1024);
+        match re.replace(&text, &repl) {
+            Err(SolveError::ResultTooLarge) => {}
+            Ok(_) => panic!("expected ResultTooLarge"),
+            other => panic!("expected ResultTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unicode_word_semantics_ucp() {
+        // PCRE2_UCP is always on (PHP /u parity): \w matches CJK code points.
+        let re = CompiledRegex::compile(r"\w+", "g").unwrap();
+        let spans = re.match_all("中文").unwrap();
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].start, spans[0].end), (0, 6));
     }
 
     #[test]

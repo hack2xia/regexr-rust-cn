@@ -6,10 +6,16 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 /// CSP notes:
-/// - `script-src 'unsafe-inline'`: CodeMirror inline styles/`#phpinject` inline script.
+/// - No `'unsafe-inline'` in `script-src`: the app bootstrap lives in the
+///   external `/server/init.js` (dynamic PCRE version), not an inline block.
+///   DOM XSS in the expression pane can therefore no longer execute even if
+///   it slips past the token rendering.
 /// - `worker-src blob:`: the JS flavor creates a Web Worker from a Blob
 ///   (BrowserSolver.js) — without this the JS engine silently degrades.
-const CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'";
+///   Dedicated workers are governed by worker-src, so `script-src blob:` is
+///   not needed.
+/// - `style-src 'unsafe-inline'` stays: CodeMirror uses inline styles.
+const CSP: &str = "default-src 'self'; script-src 'self'; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'none'";
 
 pub async fn add_headers(req: Request, next: Next) -> Response {
     let mut res = next.run(req).await;

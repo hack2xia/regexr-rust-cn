@@ -64,10 +64,10 @@ WantedBy=multi-user.target
 | 项 | 配置 |
 |---|---|
 | 请求体大小 | 1 MiB 上限（超出 413） |
-| 并发 | 8 并发上限，满载直接 503（LoadShed），不排队 |
-| 请求超时 | 10s 兜底 |
-| 灾难性回溯 | PCRE2 match_limit=1,000,000 + depth_limit=10,000（病态正则毫秒级返回 `infinite` 警告） |
-| 超大输入 | 匹配数截断于 20,000 后停止扫描；偏移换算为一遍前缀表 O(n+m)——大文本 + 空匹配模式不再产生隐蔽的 CPU 放大 |
+| solve 并发 | 8 个 PCRE2 任务上限（信号量许可随阻塞任务全程持有），满载直接 503，不排队；静态资源不受此限制 |
+| 请求超时 | 10s 兜底（超时 408）。正在运行的 `pcre2_match` FFI 调用不可中断，实际由下方 match/depth 限制兜住 |
+| 灾难性回溯 | PCRE2 match_limit=1,000,000 + depth_limit=10,000（病态正则毫秒级返回 `infinite` 警告）。注意：JIT 编译失败会静默回退解释器（限制仍然生效，仅性能下降） |
+| 超大输入 | 匹配数截断于 20,000 后停止扫描并返回 `"truncated": true`；捕获组单元格（匹配数×组数）预算 1,000,000、replace/list 输出 4 MiB、JSON 响应 32 MiB，超限返回明确错误而非伪装完整的截断数据；tests 超 1,000 条时响应带 `truncated_tests` 数量 |
 | JIT 栈 | 64KB 起 / 1MB 上限 |
 | 匹配数量 | 单请求最多 20,000 个匹配 |
 | tests 模式 | 单请求最多 1,000 条 |
@@ -75,17 +75,50 @@ WantedBy=multi-user.target
 | 持久化 | 无（无 DB、无文件写入、无 session、无日志用户内容） |
 | 外部请求 | 零（无 GA / Google Fonts / 广告 / 社区 API） |
 | 响应头 | CSP、X-Frame-Options: DENY、nosniff、Referrer-Policy: no-referrer、Permissions-Policy |
-| 出错行为 | 恒 HTTP 200 + JSON 错误包络（与原 PHP 契约一致），无堆栈泄漏 |
-| UTF 语义 | PCRE2 **恒以 UTF 模式**编译（`engine.rs`）：`.`、`\w` 等按 Unicode 码点匹配，对中文更友好。与"无 `/u` 修饰符的 PHP"（按字节匹配）存在系统性差异，与 Suricata 对拍时需注意其 PCRE 调用是否启用 UTF |
+| 出错行为 | 业务错误恒 HTTP 200 + JSON 错误包络（与原 PHP 契约一致），无堆栈泄漏；基础设施层可能返回 413 / 503 / 408 |
+| UTF 语义 | PCRE2 恒以 PHP `/u` 修饰符的完整选项集编译（`engine.rs`：`UTF + UCP + NEVER_BACKSLASH_C`，与 php-src 一致）：`.`、`\w`、`\d`、`\s`、`\b` 按 Unicode 语义匹配，`\C` 不可用。与"无 `/u` 修饰符的 PHP"（按字节匹配）存在系统性差异，与 Suricata 对拍时需注意其 PCRE 调用是否启用 UTF |
+| CSP | `script-src 'self'`（无 `unsafe-inline`）：应用初始化脚本位于外部 `/server/init.js`；DOM XSS 即使绕过前端转义也无法执行内联脚本 |
+
+## 公网暴露加固（如需公网自托管）
+
+本服务默认按受控内网工具设计。若必须暴露公网，**不要直接把 0.0.0.0 服务暴露给
+互联网**，推荐拓扑：
+
+1. 服务只绑定 loopback：`REGEXR_ADDR=127.0.0.1:8080`；
+2. 由反向代理（Caddy / nginx）或负载均衡器负责 TLS 终结、连接数限制、
+   按 IP 限速与访问控制；
+3. 可选：反代层加 IP 白名单 / Basic Auth，仅放行安全团队网段。
+
+nginx 参考片段：
+
+```nginx
+server {
+    listen 443 ssl;
+    # ... 证书配置 ...
+    location / {
+        limit_req zone=regexr burst=20;   # 按 IP 限速
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+```
+
+剩余风险提示：无认证的 solve 接口仍可被任何能访问到服务的人消耗 CPU/内存
+（已有 match/depth 限制、资源预算与并发上限兜底），公网部署时按第 2、3 条
+限流隔离是必要的。
 
 ## 测试
 
 ```bash
-cd server && cargo test     # 29 个测试：引擎、偏移、替换、包络、fixtures 回放、proptest 性质、安全头
+cd server && cargo test     # 30+ 个测试：引擎、偏移、替换、包络、fixtures 回放、proptest 性质、安全头
 ```
 
-发布产物冒烟（回放全部 fixtures + 安全头检查到真实二进制上，验证 musl 静态链接
-与目标机 PCRE2 JIT，`cargo test` 覆盖不到的部署层）：
+发布产物冒烟（回放全部 fixtures + 安全头检查到真实二进制上，验证部署层行为
+与目标机 PCRE2 JIT 可用性，`cargo test` 覆盖不到的部署层）：
+
+> 注：冒烟通过说明服务可用，但**不证明 JIT 一定在运行**——JIT 编译失败会
+> 静默回退解释器。交叉编译的 musl 静态链接同样建议在目标机以 `ldd` /
+> `file` 做最终确认（间接运行验证不等于严格 linkage 检查）。
 
 ```bash
 ./scripts/smoke.sh          # 默认测 cross-build.sh 的 musl 产物，无则先构建本地 debug 二进制

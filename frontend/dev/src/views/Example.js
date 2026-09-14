@@ -41,9 +41,10 @@ export default class Example {
 			str += "<code class='expression'><svg class='icon load'><use xlink:href='#load'><title>载入正则表达式</title></use></svg>" + Utils.htmlSafe(exp) + "</code>";
 			if (txt && regex) {
 				let over=Math.max(0, txt.length-160), s=txt;
-				if (over) { s = Utils.htmlSafe(s.substr(0,159)); }
-				if (regex) { s = s.replace(regex, "<em>$&</em>"); }
-				// TODO: this won't match on html elements:
+				// escape BEFORE building markup: only exp was escaped before,
+				// raw txt could carry HTML straight into innerHTML.
+				s = Utils.htmlSafe(over ? s.substr(0,159) : s);
+				s = s.replace(regex, "<em>$&</em>");
 				str += "<hr><code class='text'><svg class='icon load'><use xlink:href='#load'><title>载入文本</title></use></svg>" + s + (over?"<i>\u2026</i>" : "") + "</code>";
 			}
 		}

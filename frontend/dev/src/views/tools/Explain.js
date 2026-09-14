@@ -47,38 +47,59 @@ export default class Explain {
 	_update() {
 		let el = $.empty(this.el), token = app.expression.token, expr = app.expression.value;
 		this._divs = [];
+		// All token text is inserted via textContent / createTextNode — never
+		// innerHTML. The expression can come from the URL, so string-built
+		// markup here was a URL-driven DOM XSS sink.
+		let desc = $.create("span", "desc", null, el);
 		if (!token || token.next.type === "close") {
-			el.innerHTML = "<span class='desc'>在上方输入的表达式会在此显示解析。</span>";
+			desc.textContent = "在上方输入的表达式会在此显示解析。";
 			return;
 		}
-		el.innerHTML = "<span class='desc'>滚动鼠标来高亮上方的正则表达式。通过点击来显示用法。</span>";
+		desc.textContent = "滚动鼠标来高亮上方的正则表达式。通过点击来显示用法。";
 		while ((token = token.next) && (token.type !== "close")) {
-			
+
 			if (token.proxy || (token.open && token.open.proxy)) { continue; }
-			
+
 			let groupClasses = ExpressionHighlighter.GROUP_CLASS_BY_TYPE, pre = ExpressionHighlighter.CSS_PREFIX;
-			let i = token.i, end = token.i+token.l, content=expr.substring(i, end).replace("<", "&lt;");
+			let i = token.i, end = token.i+token.l;
+
+			let code = $.create("code", "token "+pre+(token.clss || token.type));
 			if (token.set) {
 				let set0=token.set[0], set2=token.set[2];
-				content = "<span class='"+pre+(set0.clss || set0.type)+"'>"+expr.substring(set0.i, set0.i+set0.l)+"</span>";
-				content += expr.substring(i, end);
-				content += "<span class='"+pre+(set2.clss || set2.type)+"'>"+expr.substring(set2.i, set2.i+set2.l)+"</span>";
+				let s0 = $.create("span", pre+(set0.clss || set0.type), null, code);
+				s0.textContent = expr.substring(set0.i, set0.i+set0.l);
+				code.appendChild(document.createTextNode(expr.substring(i, end)));
+				let s2 = $.create("span", pre+(set2.clss || set2.type), null, code);
+				s2.textContent = expr.substring(set2.i, set2.i+set2.l);
+			} else {
+				code.textContent = expr.substring(i, end);
 			}
-			
-			let className = pre + (token.clss || token.type);
-			content = "<code class='token "+className+"'>"+content+"</code> ";
-			if (!token.open) { content += app.reference.tipForToken(token); }
-			else { content += "&nbsp;"; }
-			let div = $.create("div", null, content, el);
-			
+
+			let div = $.create("div", null, null, el);
+			div.appendChild(code);
+
+			// tipForToken returns reference-doc HTML: values interpolated from
+			// the token are escaped inside fillTags, and the templates are
+			// app-controlled static content — this is the only intentional
+			// (trusted) HTML sink here.
+			let tip = token.open ? null : app.reference.tipForToken(token);
+			if (tip) {
+				// keep the original "<code> ...</code> tip" spacing
+				div.appendChild(document.createTextNode(" "));
+				let tipEl = $.create("span", null, null, div);
+				tipEl.innerHTML = tip;
+			} else if (token.open) {
+				code.appendChild(document.createTextNode("\u00A0"));
+			}
+
 			if (token.close) {
-				className = groupClasses[token.clss || token.type];
+				let className = groupClasses[token.clss || token.type];
 				if (className) {
 					className = className.replace("%depth%", Math.min(4,token.depth));
 					$.addClass(div, className);
 				}
 				if (token.depth > 3) {
-					div.innerHTML = "所以……你是想看看当嵌套分组时会发生什么对吧？ 其实吧，结果就是这样。"+
+					div.textContent = "所以……你是想看看当嵌套分组时会发生什么对吧？ 其实吧，结果就是这样。"+
 						" 我本来想表扬你对正则表达式玩笑的好奇心的， 但谷歌一下你就会发现：就凭几千万的网民是无法让正则表达式变得好玩的。"+
 						" 除了大概你已经听说过的 “当你遇到一个问题，发现可以用正则表达式解决时，你遇到了两个问题” 之外，"+
 						" 这不值得尝试，你觉得呢？";
@@ -89,26 +110,26 @@ export default class Explain {
 				}
 				el = div;
 			}
-			
+
 			div.token = token;
-	
+
 			if (token.open) {
 				$.addClass(div, "close");
 				div.proxy = el;
 				el = el.parentNode;
 			}
-	
+
 			if (token.error) {
 				$.addClass(div, "error");
 				if (token.error.warning) { $.addClass(div, "warning"); }
 			}
-	
+
 			if (!token.open) {
 				div.addEventListener("mouseover", this._handleMouseEvent);
 				div.addEventListener("mouseout", this._handleMouseEvent);
 				div.addEventListener("click", this._handleMouseEvent);
 			}
-			
+
 			if (token.clss === "quant" || token.type === "lazy" || token.type === "possessive") {
 				this._insertApplied(div);
 			} else {

@@ -15,6 +15,10 @@ pub enum SolveError {
     JitStackLimit,
     /// Subject failed UTF-8 validation for PCRE2 (should not happen with &str).
     BadUtf8,
+    /// The result (capture-group cells, replace/list output) exceeded the
+    /// configured resource budget. Reported as an explicit error — we never
+    /// return truncated data pretending to be complete.
+    ResultTooLarge,
     /// Any other PCRE2 runtime error.
     Internal { code: i32, message: String },
 }
@@ -53,6 +57,11 @@ impl SolveError {
             SolveError::BadUtf8 => json!({
                 "name": "PREG_BAD_UTF8_ERROR",
                 "id": "badutf8",
+            }),
+            SolveError::ResultTooLarge => json!({
+                "message": "Result exceeded server resource limits",
+                "name": "PREG_INTERNAL_ERROR",
+                "id": "error",
             }),
             SolveError::Internal { message, .. } => json!({
                 "message": message,

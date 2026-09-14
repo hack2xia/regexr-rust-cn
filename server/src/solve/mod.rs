@@ -132,6 +132,7 @@ pub fn solve(req: &SolveRequest) -> Value {
     match mode {
         "tests" => {
             let tests = req.tests.as_deref().unwrap_or(&[]);
+            let skipped = tests.len().saturating_sub(config::MAX_TESTS);
             let mut matches = Vec::with_capacity(tests.len().min(config::MAX_TESTS));
             for t in tests.iter().take(config::MAX_TESTS) {
                 let text = t.text.as_deref().unwrap_or("");
@@ -156,31 +157,54 @@ pub fn solve(req: &SolveRequest) -> Value {
                 matches.push(Value::Object(entry));
             }
             data["matches"] = json!(matches);
+            // Silent dropping of over-limit tests would make the response look
+            // complete; report how many were skipped.
+            if skipped > 0 {
+                data["truncated_tests"] = json!(skipped);
+            }
         }
         _ => {
             // mode = "text"
             let text = req.text.as_deref().unwrap_or("");
             let result = (|| -> Result<Value, SolveError> {
-                let spans = if re.global() {
-                    re.match_all(text)?
+                let (spans, truncated) = if re.global() {
+                    re.match_all_limited(text, Some(config::MAX_MATCHES))?
                 } else {
-                    re.match_one(text)?.into_iter().collect()
+                    (re.match_one(text)?.into_iter().collect(), false)
                 };
                 let ix = Utf16Indexer::new(text);
                 let matches: Vec<JsonMatch> = spans.iter().map(|sp| json_match(sp, &ix)).collect();
 
                 let mut data = json!({ "matches": matches });
+                // Never truncate silently: the frontend (and API consumers)
+                // must be able to tell a complete result from a capped one.
+                if truncated {
+                    data["truncated"] = json!(true);
+                }
 
                 if let Some(tool) = &req.tool {
                     let tool_id = tool.id.as_deref().unwrap_or("");
                     let tool_result = match tool_id {
-                        "replace" => {
+                        "replace" | "list" => {
                             let repl = tool.input.as_ref().and_then(|v| v.as_str()).unwrap_or("");
-                            re.replace(text, repl)?
-                        }
-                        "list" => {
-                            let repl = tool.input.as_ref().and_then(|v| v.as_str()).unwrap_or("");
-                            re.list(text, repl)?
+                            // preg_replace is always global regardless of the
+                            // `g` flag, so a non-global pattern still needs a
+                            // full global scan for the tool. When the display
+                            // spans are already the full global scan (and not
+                            // match-count-truncated), reuse them instead of
+                            // re-running the FFI loop.
+                            let tspans;
+                            let tool_spans: &[engine::MatchSpan] = if re.global() && !truncated {
+                                &spans
+                            } else {
+                                tspans = re.match_all_limited(text, None)?.0;
+                                &tspans
+                            };
+                            if tool_id == "replace" {
+                                re.replace_with_spans(text, tool_spans, repl)?
+                            } else {
+                                re.list_with_spans(text, tool_spans, repl)?
+                            }
                         }
                         // details/explain never reach the server; unknown ids -> ""
                         _ => String::new(),

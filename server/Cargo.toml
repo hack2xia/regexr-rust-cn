@@ -2,6 +2,7 @@
 name = "regexr-server"
 version = "1.0.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 description = "Private intranet RegExr deployment: static frontend + PCRE2 solve API (Rust replacement for the PHP backend)"
 
 [[bin]]
@@ -10,8 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 axum = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal"] }
-tower = { version = "0.4", features = ["limit", "load-shed", "timeout"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync"] }
+tower = { version = "0.4", features = ["timeout"] }
 tower-http = { version = "0.5", features = ["set-header"] }
 tower-layer = "0.3"
 tower-service = "0.3"

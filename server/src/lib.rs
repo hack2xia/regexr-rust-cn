@@ -16,26 +16,29 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::state::AppState;
 
-/// Convert tower service errors (load shedding, timeout) into responses.
+/// Convert tower service errors (timeout) into responses.
 async fn handle_service_error(err: tower::BoxError) -> (StatusCode, &'static str) {
-    if err.is::<tower::load_shed::error::Overloaded>() {
-        (StatusCode::SERVICE_UNAVAILABLE, "server busy")
-    } else {
-        (StatusCode::REQUEST_TIMEOUT, "request timeout")
-    }
+    // The only error reaching this layer now is the wall-clock timeout
+    // backstop (solve overload is handled in the API handler via the
+    // semaphore, returning 503 there).
+    let _ = err;
+    (StatusCode::REQUEST_TIMEOUT, "request timeout")
 }
 
 /// Build the full application router (security middleware included).
 ///
 /// Middleware (outermost first): server header -> security headers -> 1MB
-/// body limit -> load shed / concurrency limit / timeout. The wall-clock
-/// timeout is only a backstop for handler overhead; a running `pcre2_match`
-/// FFI call is bounded by the PCRE2 match/depth limits (see config.rs).
+/// body limit -> timeout backstop. Solve concurrency is enforced *inside*
+/// the API handler with a semaphore whose permit lives for the entire
+/// blocking PCRE2 task (a tower `concurrency_limit` would release the permit
+/// when the request future drops on timeout, while the FFI task keeps
+/// running). Static assets are not gated by the solve semaphore.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(http::static_assets::index))
         .route("/index.html", get(http::static_assets::index))
         .route("/server/api.php", post(http::api::handle))
+        .route("/server/init.js", get(http::static_assets::init_js))
         .route("/regexr.js", get(http::static_assets::regexr_js))
         .route("/regexr.css", get(http::static_assets::regexr_css))
         .route("/assets/*path", get(http::static_assets::asset))
@@ -52,8 +55,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .layer(axum::error_handling::HandleErrorLayer::new(
                     handle_service_error,
                 ))
-                .load_shed()
-                .concurrency_limit(config::MAX_CONCURRENT_SOLVE)
                 .timeout(std::time::Duration::from_secs(config::REQUEST_TIMEOUT_SECS)),
         )
 }

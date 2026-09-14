@@ -28,30 +28,47 @@ export default class BrowserSolver {
 	}
 
 	solve(o, callback) {
-		this._callback = callback;
-		this._req = o;
+		// Per-request isolation: everything a solve needs (request, callback,
+		// regex, timer, worker) is either captured in this invocation's
+		// closures or torn down here. Previously _callback/_req/_timeoutId
+		// were shared across overlapping workers, so a fast-typing request B
+		// could receive request A's result (or worse: A's completion could
+		// clear B's 250ms timeout, removing the kill switch for a
+		// catastrophic regex).
+		if (this._worker) { this._worker.terminate(); this._worker = null; }
+		if (this._timeoutId) { clearTimeout(this._timeoutId); this._timeoutId = null; }
 
 		let regex, text=o.text, tests=o.tests, mode = o.mode;
 		try {
 			this._regex = regex = new RegExp(o.pattern, o.flags);
 		} catch(e) {
-			return this._onRegExComplete({id:"regexparse", name: e.name, message: e.message}, null, mode);
+			return this._onRegExComplete(o, callback, {id:"regexparse", name: e.name, message: e.message}, null, mode);
 		}
 
 		if (window.Worker) {
 			const worker = new Worker(this._workerObjectURL);
+			this._worker = worker;
 
 			worker.onmessage = (evt) => {
+				// Stale guard: normally impossible (old workers are
+				// terminated synchronously when a new solve starts), but it
+				// makes the invariant explicit and cheap to enforce.
+				if (this._worker !== worker) { worker.terminate(); return; }
+
 				if (evt.data === "onload") {
 					this._startTime = Utils.now();
 					this._timeoutId = setTimeout(() => {
 						worker.terminate();
-						this._onRegExComplete({id: "timeout"}, null, mode); // TODO: make this a warning, and return all results so far.
+						if (this._worker !== worker) { return; }
+						this._worker = null;
+						this._timeoutId = null;
+						this._onRegExComplete(o, callback, {id: "timeout"}, null, mode); // TODO: make this a warning, and return all results so far.
 					}, 250);
 				} else {
-					clearTimeout(this._timeoutId);
+					if (this._timeoutId) { clearTimeout(this._timeoutId); this._timeoutId = null; }
+					this._worker = null;
 					worker.terminate();
-					this._onRegExComplete(evt.data.error, evt.data.matches, evt.data.mode);
+					this._onRegExComplete(o, callback, evt.data.error, evt.data.matches, evt.data.mode);
 				}
 			};
 
@@ -81,11 +98,11 @@ export default class BrowserSolver {
 			}
 			// end share
 
-			this._onRegExComplete(error, matches, mode);
+			this._onRegExComplete(o, callback, error, matches, mode);
 		}
 	}
 
-	_onRegExComplete(error, matches, mode) {
+	_onRegExComplete(o, callback, error, matches, mode) {
 		let result = {
 			time: error ? null : Utils.now()-this._startTime,
 			error,
@@ -93,28 +110,28 @@ export default class BrowserSolver {
 			matches
 		};
 
-		let tool = this._req.tool;
+		let tool = o.tool;
 		if (tool) {
 			result.tool = { id: tool.id };
 			if (!error || error.warning && tool.input != null) {
 				let str = Utils.unescSubstStr(tool.input);
-				result.tool.result = (tool.id === "replace") ? this._getReplace(str) : this._getList(str);
+				result.tool.result = (tool.id === "replace") ? this._getReplace(o, str) : this._getList(o, str);
 			}
 		}
-		this._callback(result);
+		callback(result);
 	}
 
-	_getReplace(str) {
-		return this._req.text.replace(this._regex, str);
+	_getReplace(o, str) {
+		return o.text.replace(this._regex, str);
 	}
 
-	_getList(str) {
+	_getList(o, str) {
 		// TODO: should we move this into a worker?
-		let source = this._req.text, result = "", repl, ref, trimR = 0, regex;
+		let source = o.text, result = "", repl, ref, trimR = 0, regex;
 
 		// build a RegExp without the global flag:
 		try {
-			regex = new RegExp(this._req.pattern, this._req.flags.replace("g", ""));
+			regex = new RegExp(o.pattern, o.flags.replace("g", ""));
 		} catch(e) {
 			return null;
 		}

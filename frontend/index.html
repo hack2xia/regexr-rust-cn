@@ -383,22 +383,8 @@ Explore results with the Tools below. Replace & List output custom results. Deta
 	</div>
 
 	<script src="<%= js_file %>"></script>
-	<script id="phpinject">
-		/** INJECTED BY PHP **/
-		// first param false indicates a local init.
-		// php passes either a pattern object, or null.
-
-		regexr.init(false, {
-			// local test user:
-			userId: 111,
-			authenticated: true,
-			username: "gskinner",
-			author: "grantskinner",
-			type: "temporary"
-		}, {
-			"PCREVersion": "8.38 2015-11-23",
-			"PHPVersion": "7.2.6 Debian stretch"
-		});
-	</script>
+	<!-- App bootstrap lives in an external file (served by the Rust backend at
+	     /server/init.js) so the CSP can drop script-src 'unsafe-inline'. -->
+	<script id="phpinject" src="/server/init.js"></script>
 </body>
 </html>

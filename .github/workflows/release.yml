@@ -42,12 +42,24 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: rustfmt, clippy
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
           key: ${{ matrix.target }}
+
+      # Quality gate on every release build: a tag must pass the same checks
+      # as CI (fmt/clippy/test) before any binary is produced or published.
+      - name: rustfmt
+        run: cargo fmt --manifest-path server/Cargo.toml --check
+
+      - name: clippy
+        run: cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warnings
+
+      - name: tests
+        run: cargo test --locked --manifest-path server/Cargo.toml
 
       - name: install cargo-zigbuild + zig (linux only)
         if: runner.os == 'Linux'
@@ -59,9 +71,9 @@ jobs:
         working-directory: server
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            cargo zigbuild --release --target ${{ matrix.target }}
+            cargo zigbuild --release --locked --target ${{ matrix.target }}
           else
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --locked --target ${{ matrix.target }}
           fi
 
       # Only run the smoke suite where the host can execute the target binary
@@ -86,11 +98,14 @@ jobs:
           cp server/target/${{ matrix.target }}/release/regexr-server "$dir"/
           cp README.md docs/DEPLOY.md "$dir"/
           tar czf "$dir".tar.gz "$dir"
+          sha256sum "$dir".tar.gz > "$dir".tar.gz.sha256
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: "*.tar.gz"
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
 
   # One job publishes so concurrent build jobs never race on release creation
   # (parallel softprops runs hit GitHub API 500s on the first release attempt).
@@ -105,5 +120,7 @@ jobs:
           path: dist
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
           generate_release_notes: true

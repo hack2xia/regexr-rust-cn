@@ -131,7 +131,7 @@ async fn stub_actions() {
 }
 
 #[tokio::test]
-async fn static_index_has_injected_init_and_security_headers() {
+async fn static_index_has_external_init_and_security_headers() {
     let app = test_app();
     let resp = app
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -142,15 +142,43 @@ async fn static_index_has_injected_init_and_security_headers() {
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&bytes);
 
-    assert!(html.contains(r#"regexr.init(false,"#), "init injected");
-    assert!(html.contains("private-rust-deploy"), "versions injected");
+    // The bootstrap lives in an external script so the CSP can drop
+    // 'unsafe-inline' from script-src.
+    assert!(
+        html.contains(r#"id="phpinject" src="/server/init.js""#),
+        "init loaded from external script"
+    );
     assert!(html.contains("id=\"regexWorker\""), "worker inline kept");
     assert_eq!(
         headers["content-security-policy"],
-        "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'"
+        "default-src 'self'; script-src 'self'; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'none'"
     );
     assert_eq!(headers["x-frame-options"], "DENY");
     assert_eq!(headers["x-content-type-options"], "nosniff");
+}
+
+#[tokio::test]
+async fn external_init_js_serves_bootstrap() {
+    let app = test_app();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/server/init.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()["content-type"],
+        "application/javascript",
+        "init must be served as a script, not HTML"
+    );
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let js = String::from_utf8_lossy(&bytes);
+    assert!(js.contains(r"regexr.init(false,"), "bootstrap body");
+    assert!(js.contains("private-rust-deploy"), "version injected");
 }
 
 #[tokio::test]
