@@ -6,6 +6,7 @@ RegExr 中文版（regexr-cn fork）私有部署：Rust + PCRE2 单二进制后�
 
 ```
 regexr-server        # 单个静态链接的 Linux x86_64 二进制（内嵌前端资源）
+regexr-server        # macOS x86_64 / aarch64 / universal 二进制（见下文 macOS 部署）
 ```
 
 ## 构建步骤（在内网外的构建机上执行一次）
@@ -56,6 +57,77 @@ ReadWritePaths=
 [Install]
 WantedBy=multi-user.target
 ```
+
+## macOS 部署（launchd）
+
+macOS 无 systemd，用 launchd 常驻。二进制获取二选一：
+
+```bash
+# 1) 本机构建（rustup 环境产出双架构 + universal 二进制）
+./scripts/build-macos.sh            # 产物： server/target/universal/regexr-server
+
+# 2) 从 GitHub Releases 下载 macOS 目标的 tar.gz 解压
+```
+
+安装：
+
+```bash
+sudo mkdir -p /opt/regexr
+sudo cp regexr-server /opt/regexr/
+# 浏览器下载的未签名二进制可能被 Gatekeeper 拦截，清除隔离属性即可：
+sudo xattr -dr com.apple.quarantine /opt/regexr/regexr-server
+```
+
+launchd 配置（系统级守护进程，等价于上文 systemd 服务；若仅需当前用户登录后运行，
+把 plist 放到 `~/Library/LaunchAgents/` 并删掉 `UserName`，后续命令均不需要 sudo）：
+
+```xml
+<!-- /Library/LaunchDaemons/com.regexr.server.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.regexr.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/regexr/regexr-server</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>REGEXR_ADDR</key>
+        <string>0.0.0.0:8080</string>
+    </dict>
+    <key>UserName</key>
+    <string>regexr</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>2</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/regexr-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/regexr-server.log</string>
+</dict>
+</plist>
+```
+
+启用 / 重启 / 停止：
+
+```bash
+sudo plutil -lint /Library/LaunchDaemons/com.regexr.server.plist   # 先校验 plist 语法
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.regexr.server.plist
+sudo launchctl kickstart -k system/com.regexr.server    # 改配置后重启
+sudo launchctl bootout system/com.regexr.server         # 停止并卸载
+```
+
+（旧式 `launchctl load -w` / `unload -w` 等价可用。）
+
+与 systemd 样例的对应：`KeepAlive` ≈ `Restart=always`，`ThrottleInterval` ≈
+`RestartSec`，`UserName` ≈ `User`。服务无状态、无文件写入需求，与 Linux 侧一致。
+
 
 ## 安全加固对照（供安全部门审查）
 
